@@ -1,0 +1,40 @@
+{
+  "name": "npryx",
+  "version": "1.0.0",
+  "description": "A security-first superset of npx: previews install-script, provenance, age, popularity and typosquat signals before running a remote package, fails closed, and remembers approvals.",
+  "bin": {
+    "npryx": "npryx.js"
+  },
+  "files": [
+    "npryx.js"
+  ],
+  "scripts": {
+    "pretest": "standard npryx.js test/npryx.js",
+    "test": "node npryx.js --selftest && node --test test/npryx.js"
+  },
+  "repository": "github:Jeecabs/npryx",
+  "keywords": [
+    "npx",
+    "npm",
+    "security",
+    "supply-chain",
+    "typosquat",
+    "provenance",
+    "install-scripts",
+    "cli"
+  ],
+  "author": "Jeecabs",
+  "license": "ISC",
+  "devDependencies": {
+    "standard": "^17.1.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "standard": {
+    "globals": [
+      "fetch",
+      "AbortSignal"
+    ]
+  }
+}
