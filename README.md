@@ -30,7 +30,7 @@ what you've already approved so the prompt keeps meaning something.
 
   package       esbuild@0.28.1   (asked: latest)
   published     11d ago
-  weekly dl     243,988,517
+  weekly dl     41,284,663
   maintainers   esbuild
   repo          git+https://github.com/evanw/esbuild.git
   integrity     sha512-HrJrvZv5ayxBzPfwp…
@@ -59,6 +59,11 @@ Weekly downloads come from the public npm API as a best-effort hint.
 | **deprecation** | the maintainer marked it deprecated |
 | **typosquat** | the name is one edit away from a popular package (`crossenv` → `cross-env`) |
 | **context** | resolved `name@version`, maintainers, repo, and `dist.integrity` — always shown |
+
+> **Scope:** npryx previews the **target** package — `npm view` reports the target's
+> own install scripts, not a transitive dependency's. The `s` (`--ignore-scripts`)
+> option blocks install hooks across the whole tree, so reach for it when a target
+> you trust pulls deps you don't.
 
 ## The prompt
 
@@ -102,8 +107,8 @@ verified via the registry and are forwarded straight through, unaltered.
 
 ## Install
 
-Requires **Node 18+** (uses global `fetch` and `readline/promises`). Zero runtime
-dependencies.
+Requires **Node 18+** (uses global `fetch` and `readline/promises`). Zero
+dependencies — runtime *and* dev.
 
 ```
 npm install -g npryx

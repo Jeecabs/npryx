@@ -9,7 +9,6 @@
     "npryx.js"
   ],
   "scripts": {
-    "pretest": "standard npryx.js test/npryx.js",
     "test": "node npryx.js --selftest && node --test test/npryx.js"
   },
   "repository": "github:Jeecabs/npryx",
@@ -25,16 +24,7 @@
   ],
   "author": "Jeecabs",
   "license": "ISC",
-  "devDependencies": {
-    "standard": "^17.1.2"
-  },
   "engines": {
     "node": ">=18"
-  },
-  "standard": {
-    "globals": [
-      "fetch",
-      "AbortSignal"
-    ]
   }
 }
