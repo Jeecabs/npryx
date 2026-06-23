@@ -131,6 +131,19 @@ package safety signals, and npryx borrows its signal taxonomy. npryx differs by
 wrapping **`npx` execution** specifically, **failing closed**, offering the inline
 `--ignore-scripts` run, and keeping a TOFU trust store.
 
+## Roadmap
+
+npryx isn't on npm yet. Planned, roughly in order:
+
+- **Publish with provenance.** Ship npryx itself via `npm publish --provenance` from
+  CI using OIDC trusted publishing (no long-lived token) — so `npryx npryx` shows its
+  own `provenance ✓`. Practise what it preaches.
+- **Transitive install-script preview.** Today npryx previews the **target** only, but
+  the real risk is a *dependency's* `postinstall`. A metadata-only resolve
+  (`npm install --package-lock-only --ignore-scripts` — no download, nothing executed,
+  ~3s) surfaces every package in the tree that runs install scripts. The TOFU store
+  would pin that set, so a trusted target re-prompts when its tree changes.
+
 ## License
 
 ISC. See `LICENSE.md`.
