@@ -35,6 +35,15 @@ const POPULAR = [
   'puppeteer', 'playwright', 'sharp', 'uuid', 'semver', 'glob', 'husky', 'sigstore'
 ]
 
+// npm verbs people type from muscle memory. npryx wraps `npx` (npm exec), which
+// has no subcommands — `npx install …` RUNS the registry package named "install",
+// it does not install anything. Warn (don't block: the package may be intended).
+// ponytail: high-precision npm-only verbs; words that double as plausible package
+// names (run/test/start/link/pack) are left out to avoid false alarms.
+const NPM_SUBCOMMANDS = new Set([
+  'install', 'i', 'ci', 'add', 'uninstall', 'remove', 'update', 'upgrade', 'audit', 'dedupe', 'prune'
+])
+
 // --- pure, testable arg handling ---------------------------------------------
 function targetSpec (args) {
   for (let i = 0; i < args.length; i++) {
@@ -167,6 +176,7 @@ function warnings (s, downloads, squat) {
   if (days != null && days < 30) w.push(`published only ${Math.round(days)}d ago — brand new, little scrutiny yet`)
   if (downloads != null && downloads < 1000) w.push(`only ${downloads.toLocaleString()} weekly downloads — unusually low`)
   if (squat) w.push(`did you mean "${squat}"? "${s.name}" is one edit away from a popular package — possible typosquat`)
+  if (NPM_SUBCOMMANDS.has(s.name)) w.push(`"${s.name}" is an npm subcommand — npryx wraps \`npx\` (npm exec), so this RUNS the registry package "${s.name}" rather than performing \`npm ${s.name}\`. Did you mean \`npm ${s.name} …\`?`)
   return w
 }
 
@@ -368,6 +378,10 @@ function selftest () {
   assert.strictEqual(typosquat('expres'), 'express')
   assert.strictEqual(typosquat('express'), null) // exact, not a squat
   assert.strictEqual(typosquat('@scope/express'), null) // scoped, skipped
+  const base = { runsInstallScripts: false, deprecated: null, published: null, maintainers: [] }
+  const subRe = /npm subcommand/
+  assert.ok(warnings({ ...base, name: 'install' }, null, null).some(x => subRe.test(x))) // npx install footgun
+  assert.ok(!warnings({ ...base, name: 'cowsay' }, null, null).some(x => subRe.test(x))) // real pkg, no warning
   assert.strictEqual(trustMatch({ esbuild: { integrity: 'sha512-x' } }, s).status, 'trusted')
   assert.strictEqual(trustMatch({ esbuild: { integrity: 'sha512-OLD', version: '0.1.0' } }, s).status, 'changed')
   assert.strictEqual(trustMatch({}, s).status, 'unknown')
