@@ -5,16 +5,43 @@ on:
     branches: [latest]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: [18, 20, 22]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm install
+      # .npmrc sets ignore-scripts: no dev dependency runs code on install
+      - run: npm ci
       - run: npm test
+      # Real npm, real registry: catches spawn problems (e.g. Windows .cmd shims)
+      # that the fake-npm tests can't. Dry run, so nothing executes.
+      - run: node npryx.js -y cowsay@^1 hi
+        env:
+          NPRYX_DRYRUN: '1'
+
+  scan-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scan-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: scan-service
+      # Docker is available on ubuntu runners, so the sandbox tests run for real.
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

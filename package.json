@@ -9,7 +9,7 @@
     "npryx.js"
   ],
   "scripts": {
-    "test": "node npryx.js --selftest && node --test test/npryx.js"
+    "test": "node --test \"test/*.test.mjs\""
   },
   "repository": "github:Jeecabs/npryx",
   "keywords": [
@@ -25,6 +25,9 @@
   "author": "Jeecabs",
   "license": "ISC",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@hegeldev/hegel": "0.4.7"
   }
 }
