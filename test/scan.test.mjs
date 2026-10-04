@@ -104,7 +104,22 @@ const CASES = [
   { name: 'a result for other bytes is ignored', argv: ['swapped-pkg'], env: ALLOW('swapped-pkg'), expect: { status: 0, stderr: /different package/ } },
   { name: 'a slow service times out and changes nothing', argv: ['slow-pkg'], env: ALLOW('slow-pkg'), expect: { status: 0, stderr: /unavailable \(timed out\)/ } },
   { name: 'an unreachable service changes nothing', argv: ['cowsay'], optIn: false, env: { ...ALLOW('cowsay'), NPRYX_SCAN_URL: 'http://127.0.0.1:9' }, expect: { status: 0, stderr: /remote scan +unavailable/ } },
-  { name: 'without a pinned key, results are marked unsigned', argv: ['cowsay'], env: { ...ALLOW('cowsay'), NPRYX_SCAN_KEY: '' }, expect: { stderr: /nothing found \(not a guarantee\) \(unsigned\)/ } }
+  { name: 'without a pinned key, results are marked unsigned', argv: ['cowsay'], env: { ...ALLOW('cowsay'), NPRYX_SCAN_KEY: '' }, expect: { stderr: /nothing found \(not a guarantee\) \(unsigned\)/ } },
+
+  // --json reports the scan as data
+  {
+    name: 'json: a confirmed threat is refused, with its findings',
+    argv: ['--json', 'evil-pkg'],
+    env: { NPRYX_YES: '1' },
+    expect: {
+      status: 1,
+      npx: [],
+      requests: 1,
+      json: { decision: 'refuse', reason: 'confirmed-threat', packages: [{ scan: { status: 'done', verdict: 'confirmed', signed: true, previous: '0.9.0', findings: [{ id: 'sandbox.canary-exfil', severity: 'confirmed', phase: 'install', destinations: ['https://203.0.113.7/c'], newSincePrevious: true }] } }] }
+    }
+  },
+  { name: 'json: an unverifiable scan is reported and changes nothing', argv: ['--json', 'forged-pkg'], expect: { status: 3, json: { decision: 'needs-approval', packages: [{ scan: { status: 'unavailable', error: /signature does not verify/, verdict: null } }] } } },
+  { name: 'json: --scan-status', argv: ['--scan-status', '--json'], env: { NPRYX_SCAN_TOKEN: 't0k' }, expect: { status: 0, json: { enabled: true, url: /^http:\/\/127\.0\.0\.1:\d+$/, keyPinned: true, token: true, deep: false } } }
 ]
 
 for (const { name, expect, ...setup } of CASES) {

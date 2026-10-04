@@ -9,7 +9,7 @@ import * as hegel from '@hegeldev/hegel'
 import * as gs from '@hegeldev/hegel/generators'
 import npryx from '../npryx.js'
 
-const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, pinArgs, withoutYes, appendAliasBlock, removeAliasBlock, hasAliasBlock, foreignNpxAlias, aliasRcPath, useColor, palette, render, wrap, promptText } = npryx
+const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, approvalToken, decide, overall, pinArgs, withoutYes, appendAliasBlock, removeAliasBlock, hasAliasBlock, foreignNpxAlias, aliasRcPath, useColor, palette, render, wrap, promptText } = npryx
 
 // --- generators --------------------------------------------------------------
 const NAME = gs.fromRegex('(@[a-z][a-z0-9-]{0,5}/)?[a-z][a-z0-9._-]{0,10}')
@@ -140,6 +140,17 @@ prop('trust: only the exact approved (version, integrity) pair is trusted', tc =
   const want = v1 !== v2 ? 'updated' : i1 === i2 ? 'trusted' : 'tampered'
   assert.strictEqual(status, want)
   assert.strictEqual(trustMatch({ pkg: { version: v1, integrity: i1 } }, { name: 'pkg', version: v2, integrity: i2 }).status, want, 'v1 store format')
+})
+
+prop('decide: tampered bytes and confirmed threats are refused, whatever is allowed', tc => {
+  const sum = { name: 'pkg', version: '1.0.0', integrity: 'sha512-x' }
+  const trust = tc.draw(gs.sampledFrom(['trusted', 'updated', 'tampered', 'unknown']))
+  const verdict = tc.draw(gs.sampledFrom([null, 'clean', 'suspected', 'confirmed']))
+  const it = { kind: 'registry', target: { spec: 'pkg' }, sum, trust: { status: trust }, scan: verdict && { result: { status: 'done', verdict } } }
+  const allow = tc.draw(gs.arrays(gs.sampledFrom(['pkg', 'pkg@1.0.0', 'sha512-x', approvalToken(sum)]), { maxSize: 3 }))
+  const d = decide(it, { forceYes: tc.draw(gs.booleans()), allow })
+  if (trust === 'tampered' || verdict === 'confirmed') assert.strictEqual(d.decision, 'refuse')
+  assert.strictEqual(overall([{ decision: 'allow', reason: 'trusted' }, d]).decision, d.decision, 'the least clear package decides')
 })
 
 // --- shell alias (opt-in) ------------------------------------------------------

@@ -111,8 +111,9 @@ quietly run it:
 - **non-interactive / CI** → it **refuses and exits 1** for any package that isn't
   already trusted. This deliberately inverts npm's "assume yes in CI" default:
   an unverified package never auto-runs in a pipeline. To allow packages, set
-  `NPRYX_ALLOW` to a comma-separated list of `name` (any version), `name@version`
-  (prefer this) or an integrity hash (`sha512-…`). `NPRYX_YES=1`, or `-y` placed
+  `NPRYX_ALLOW` to a comma-separated list of `name` (any version), `name@version`,
+  an integrity hash (`sha512-…`) or `name@version#sha512-…` (exactly those bytes,
+  the strictest). `NPRYX_YES=1`, or `-y` placed
   **before** the package, opts out entirely. A `-y` after the package belongs to
   the command being run and changes nothing.
 
@@ -163,6 +164,75 @@ npryx --scan-off
 
 Design and detection details: [docs/scan-service.md](docs/scan-service.md). Wire format:
 [docs/scan-api.md](docs/scan-api.md).
+
+## For agents and scripts
+
+`npryx --json <pkg> [args...]` checks a command without running it. It never
+prompts, never runs anything and never writes the trust store. stdout is a single
+JSON document and stderr stays empty. `--json` must come first. The decision is
+the same one a non-interactive `npryx <args>` acts on, so a loop looks like this:
+
+1. **Check:** `npryx --json cowsay moo`
+2. **`allow`** (exit 0): run `npryx <command.npryx…>`. Without a terminal it runs
+   only if the decision is still `allow`, pinned to the version shown.
+3. **`needs-approval`** (exit 3): show a human the document. If they approve, run
+   `NPRYX_ALLOW='<approve>' npryx <command.npryx…>`. `approve` is
+   `name@version#integrity`, so it allows exactly the previewed bytes: not another
+   version, not a re-published tarball.
+4. **`refuse`** (exit 1): don't run it. Tampered bytes and confirmed threats can't be
+   approved by anything. An `unverifiable` package (lookup failed, git or URL spec)
+   needs a human to check the spec themselves.
+
+| exit | meaning |
+|---|---|
+| `0` | `allow`: trusted, a local path, or allowed by `NPRYX_ALLOW` / `NPRYX_YES` |
+| `3` | `needs-approval`: verified but not trusted, a human should decide |
+| `1` | `refuse`: tampered, confirmed threat or unverifiable, or an internal error |
+| `2` | usage error (unrecognised flag, no package, a command with no JSON mode) |
+
+```json
+{
+  "schemaVersion": 1,
+  "decision": "needs-approval",
+  "reason": "untrusted",
+  "message": "not trusted yet: a human should review the packages, then approve them",
+  "command": { "npx": ["--yes", "cowsay@1.6.0", "moo"], "npryx": ["cowsay@1.6.0", "moo"] },
+  "approve": "cowsay@1.6.0#sha512-…",
+  "packages": [{
+    "requested": "cowsay", "kind": "registry", "decision": "needs-approval", "reason": "untrusted",
+    "resolved": "cowsay@1.6.0", "name": "cowsay", "version": "1.6.0", "integrity": "sha512-…",
+    "provenance": null, "installScripts": { "runs": false, "hooks": [] },
+    "published": "2024-07-08T15:31:44.000Z", "weeklyDownloads": 412345,
+    "maintainers": ["piuccio"], "repo": "git+https://github.com/piuccio/cowsay.git",
+    "deprecated": null, "typosquatOf": null, "publicRegistry": true,
+    "warnings": [],
+    "trust": { "status": "updated", "approvedAt": null, "trustedVersions": ["1.5.0"] },
+    "scan": null,
+    "approve": "cowsay@1.6.0#sha512-…",
+    "error": null
+  }]
+}
+```
+
+- `reason`: `trusted`, `local`, `allowed`, `yes`, `nothing-to-install`, `local-bin`
+  (allow); `untrusted` (needs-approval); `tampered`, `confirmed-threat`,
+  `unverifiable` (refuse). The top level takes the least clear package's.
+- `warnings[].code`: `install-scripts`, `deprecated`, `new-package`, `low-downloads`,
+  `typosquat`, `npm-subcommand`.
+- `trust.status`: `new`, `updated`, `trusted` or `tampered` (`null` if unverified).
+- `scan`: `null` unless remote scanning is on, else `status` (`done`, `pending`,
+  `integrity-mismatch`, `unavailable`), `verdict`, `signed`, `previous` and `findings`.
+- `command` is `null` when the decision is `refuse`. Errors are
+  `{ "schemaVersion": 1, "error": { "code": "usage" | "internal", "message": "…" } }`.
+- `npryx --trust-list --json` and `npryx --scan-status --json` work too.
+
+New fields may be added within a `schemaVersion`; a field changing meaning or going
+away bumps it.
+
+Approval should come from a human. npryx can't tell who set `NPRYX_ALLOW`, so if your
+agent's harness asks before running commands, keep it asking for ones that set
+`NPRYX_ALLOW` or `NPRYX_YES`. There is deliberately no way to write the trust store
+without a terminal.
 
 ## Install
 
