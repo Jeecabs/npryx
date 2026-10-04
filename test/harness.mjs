@@ -19,7 +19,7 @@ export function check (got, want) {
   if (want.stdout) assert.match(got.stdout, want.stdout)
 }
 
-export function npryx ({ argv, env = {}, store, project, views = {} }) {
+export function npryx ({ argv, env = {}, store, project, views = {}, homeFiles = {} }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npryx-'))
   const [bin, home, cwd, log] = ['bin', 'home', 'cwd', 'log'].map(p => path.join(dir, p))
   for (const d of [bin, home, cwd]) fs.mkdirSync(d)
@@ -32,6 +32,7 @@ console.log(JSON.stringify(v))\n`, { mode: 0o755 })
 if (process.env.FAKE_SIGNAL) process.kill(process.pid, process.env.FAKE_SIGNAL)
 process.exit(Number(process.env.FAKE_EXIT || 0))\n`, { mode: 0o755 })
   if (store) fs.writeFileSync(path.join(home, '.npryx.json'), JSON.stringify(store))
+  for (const [f, text] of Object.entries(homeFiles)) fs.writeFileSync(path.join(home, f), text)
   if (project) project(cwd)
 
   const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'npryx.js'), ...argv], {

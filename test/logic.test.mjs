@@ -8,7 +8,7 @@ import * as hegel from '@hegeldev/hegel'
 import * as gs from '@hegeldev/hegel/generators'
 import npryx from '../npryx.js'
 
-const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, pinArgs, withoutYes } = npryx
+const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, pinArgs, withoutYes, appendAliasBlock, removeAliasBlock, hasAliasBlock, foreignNpxAlias, aliasRcPath } = npryx
 
 // --- generators --------------------------------------------------------------
 const NAME = gs.fromRegex('(@[a-z][a-z0-9-]{0,5}/)?[a-z][a-z0-9._-]{0,10}')
@@ -139,4 +139,27 @@ prop('trust: only the exact approved (version, integrity) pair is trusted', tc =
   const want = v1 !== v2 ? 'updated' : i1 === i2 ? 'trusted' : 'tampered'
   assert.strictEqual(status, want)
   assert.strictEqual(trustMatch({ pkg: { version: v1, integrity: i1 } }, { name: 'pkg', version: v2, integrity: i2 }).status, want, 'v1 store format')
+})
+
+// --- shell alias (opt-in) ------------------------------------------------------
+const RC_LINE = gs.oneOf(gs.fromRegex('(export|alias|#|eval|source) [a-zA-Z_=./~$"\'-]{0,20}'), gs.just(''))
+
+prop('--remove-alias exactly undoes --setup-alias, for any existing config', tc => {
+  const lines = tc.draw(gs.arrays(RC_LINE, { maxSize: 6 })).filter(l => !/^alias npx/.test(l))
+  const text = lines.length ? lines.join('\n') + '\n' : ''
+  const shell = tc.draw(gs.sampledFrom(['zsh', 'bash', 'fish']))
+  const added = appendAliasBlock(text, shell)
+  assert.ok(hasAliasBlock(added))
+  assert.ok(added.startsWith(text), "the user's own lines are untouched")
+  assert.strictEqual(removeAliasBlock(added), text)
+})
+
+test('alias: the right startup file per shell, and a foreign npx alias is left alone', () => {
+  const none = () => false
+  assert.strictEqual(aliasRcPath('zsh', '/h', 'darwin', none), '/h/.zshrc')
+  assert.strictEqual(aliasRcPath('fish', '/h', 'linux', none), '/h/.config/fish/config.fish')
+  assert.strictEqual(aliasRcPath('bash', '/h', 'linux', none), '/h/.bashrc')
+  assert.strictEqual(aliasRcPath('bash', '/h', 'darwin', f => f === '/h/.bash_profile'), '/h/.bash_profile')
+  assert.ok(foreignNpxAlias("alias npx='something-else'\n"))
+  assert.ok(!foreignNpxAlias(appendAliasBlock('export X=1\n', 'zsh')), 'our own block is not foreign')
 })

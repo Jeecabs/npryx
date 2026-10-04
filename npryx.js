@@ -7,7 +7,7 @@
 // it won't auto-run. Offers a one-keystroke `--ignore-scripts` safe run, and
 // REMEMBERS prior approvals (TOFU trust store) so the prompt keeps meaning something.
 //
-// ponytail: wrapper, NOT a reimplementation. The install+run stays `npx`; we add
+// A wrapper, not a reimplementation. The install+run stays `npx`; we add
 // the pre-flight. `npm view --json` is the single registry-correct source.
 //
 // Invariants (each one closes a hole that let unverified code run):
@@ -41,7 +41,7 @@ const VALUE_FLAGS = new Set([
   '--cache', '--userconfig', '--globalconfig', '--registry', '--cafile', '--proxy', '--https-proxy', '--noproxy'
 ])
 const BOOL_FLAGS = new Set([
-  '-h', '--help', '--version', '-y', '--yes', '--no', '-q', '--quiet', '-s', '--silent', '-d', '--ignore-scripts', '--workspaces',
+  '-h', '--help', '--version', '-v', '-y', '--yes', '--no', '-q', '--quiet', '-s', '--silent', '-d', '--ignore-scripts', '--workspaces',
   '--include-workspace-root', '--offline', '--prefer-offline', '--prefer-online', '--strict-ssl'
 ])
 // Flags that change WHERE packages come from. Also passed to `npm view`, so the
@@ -53,7 +53,7 @@ const REGISTRY_FLAGS = new Set([
 
 // Common npx/install targets & known squat victims. Exact matches never warn.
 // Names under 5 chars are exact-only: one edit from `jest` is `test`, `just`,
-// `best` — too many innocent neighbours. ponytail: a static list, not a live
+// `best` — too many innocent neighbours. A static list, not a live
 // popularity feed; grow it if a real squat slips through.
 const POPULAR = [
   'express', 'cross-env', 'lodash', 'chalk', 'commander', 'request', 'react',
@@ -66,7 +66,7 @@ const POPULAR = [
 
 // npm verbs people type from muscle memory. npx has no subcommands — `npx install`
 // RUNS the registry package named "install". Warn (don't block: may be intended).
-// ponytail: high-precision npm-only verbs; words that double as plausible package
+// High-precision npm-only verbs; words that double as plausible package
 // names (run/test/start/link/pack) are left out to avoid false alarms.
 const NPM_SUBCOMMANDS = new Set([
   'install', 'i', 'ci', 'add', 'uninstall', 'remove', 'update', 'upgrade', 'audit', 'dedupe', 'prune'
@@ -518,12 +518,122 @@ function refuse (msg) {
 }
 
 // --- helper subcommands ------------------------------------------------------
+// The alias is a suggestion, never a requirement: --alias only prints it, and
+// --setup-alias edits the shell startup file only after showing the change and
+// getting a yes. The block is marked so --remove-alias can take out exactly it.
+const ALIAS_START = '# >>> npryx alias (npryx --remove-alias takes this out) >>>'
+const ALIAS_END = '# <<< npryx alias <<<'
+
+function aliasShell (env) {
+  const shell = (env.SHELL || '').split('/').pop()
+  return ['zsh', 'bash', 'fish'].includes(shell) ? shell : null
+}
+
+// macOS login shells read ~/.bash_profile rather than ~/.bashrc.
+function aliasRcPath (shell, home, platform, exists) {
+  if (shell === 'zsh') return path.join(home, '.zshrc')
+  if (shell === 'fish') return path.join(home, '.config', 'fish', 'config.fish')
+  if (shell === 'bash') {
+    const profile = path.join(home, '.bash_profile')
+    return platform === 'darwin' && exists(profile) ? profile : path.join(home, '.bashrc')
+  }
+  return null
+}
+
+function aliasCommand (shell) {
+  return shell === 'fish' ? "alias npx 'npryx'" : "alias npx='npryx'"
+}
+
+function aliasBlock (shell) {
+  return `${ALIAS_START}\n${aliasCommand(shell)}\n${ALIAS_END}\n`
+}
+
+// A blank line between the user's own config and the block, for readability.
+function appendAliasBlock (text, shell) {
+  const base = text && !text.endsWith('\n') ? text + '\n' : text
+  return base + (base ? '\n' : '') + aliasBlock(shell)
+}
+
+function hasAliasBlock (text) {
+  return text.includes(ALIAS_START)
+}
+
+// An npx alias that isn't ours: leave it alone rather than stack a second one.
+function foreignNpxAlias (text) {
+  const outside = removeAliasBlock(text)
+  return /^\s*alias\s+npx[\s=]/m.test(outside)
+}
+
+// Exactly undoes --setup-alias: the block, plus the blank line it put before it.
+function removeAliasBlock (text) {
+  const start = text.indexOf(ALIAS_START)
+  const end = start < 0 ? -1 : text.indexOf(ALIAS_END, start)
+  if (end < 0) return text
+  return text.slice(0, start).replace(/\n\n$/, '\n') + text.slice(end + ALIAS_END.length).replace(/^\n/, '')
+}
+
 function aliasLine () {
-  const shell = (process.env.SHELL || '').split('/').pop()
-  const map = { zsh: '~/.zshrc', bash: '~/.bashrc', fish: '~/.config/fish/config.fish' }
-  const rc = map[shell] || 'your shell startup file'
-  const line = shell === 'fish' ? "alias npx 'npryx'" : "alias npx='npryx'"
-  return `  # npryx alias — add to ${rc}, then restart your shell:\n  ${line}\n`
+  const shell = aliasShell(process.env)
+  const rc = shell ? aliasRcPath(shell, '~', process.platform, f => fs.existsSync(f.replace('~', os.homedir()))) : 'your shell startup file'
+  return `  # npryx alias — add to ${rc}, then restart your shell:\n  ${aliasCommand(shell)}\n` +
+    '  # or let npryx add it for you (it shows the change and asks first): npryx --setup-alias\n'
+}
+
+function helpText () {
+  return `npryx: npx that shows you what you're about to run, first.
+
+  npryx <pkg>[@<version>] [args...]   preview, then run with npx (all npx flags work)
+
+  npryx --trust-list                  packages you've trusted
+  npryx --forget <pkg>[@<version>]    drop one from the trust store
+  npryx --scan-config <url> [--token <t>] [--key <k>] [--deep]
+                                      opt in to a remote scan service
+  npryx --scan-status | --scan-off    show or turn off remote scanning
+  npryx --setup-alias | --remove-alias
+                                      optionally make \`npx\` run npryx (asks first)
+  npryx --alias                       print the alias line instead
+
+  NPRYX_ALLOW=<name>[@<version>]      allow packages in CI (comma-separated)
+  NPRYX_YES=1                         opt out of the CI refusal entirely
+
+npx's own help follows.
+
+`
+}
+
+async function confirm (question, yesFlag) {
+  if (yesFlag) return true
+  if (!process.stdin.isTTY) return false
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
+  const ans = (await rl.question(question)).trim().toLowerCase()
+  rl.close()
+  return ans === 'y' || ans === 'yes'
+}
+
+async function setupAlias (args) {
+  const shell = aliasShell(process.env)
+  if (!shell) refuse(`  npryx: couldn't tell which shell you use (SHELL=${process.env.SHELL || 'unset'}). Add the alias yourself:\n  alias npx='npryx'`)
+  const rc = aliasRcPath(shell, os.homedir(), process.platform, fs.existsSync)
+  const text = fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
+  if (hasAliasBlock(text)) { console.log(`  npryx: the alias is already set up in ${rc}.`); return }
+  if (foreignNpxAlias(text)) refuse(`  npryx: ${rc} already defines its own npx alias, so npryx left it alone.`)
+  console.log(`  This adds the following to ${rc}:\n`)
+  console.log(aliasBlock(shell).trimEnd().replace(/^/gm, '    ') + '\n')
+  console.log('  After that, npx runs npryx. To skip npryx for one command, run `command npx …`.')
+  if (!await confirm('  Add it? [y/N] ', args.includes('--yes'))) refuse('  npryx: left your shell config unchanged.')
+  fs.mkdirSync(path.dirname(rc), { recursive: true })
+  fs.writeFileSync(rc, appendAliasBlock(text, shell))
+  console.log(`  npryx: added. Open a new terminal, or run: source ${rc}`)
+}
+
+async function removeAlias (args) {
+  const shell = aliasShell(process.env)
+  const rc = shell && aliasRcPath(shell, os.homedir(), process.platform, fs.existsSync)
+  const text = rc && fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
+  if (!hasAliasBlock(text)) { console.log('  npryx: no npryx alias block found, nothing to remove.'); return }
+  if (!await confirm(`  Remove the npryx alias block from ${rc}? [y/N] `, args.includes('--yes'))) refuse('  npryx: left your shell config unchanged.')
+  fs.writeFileSync(rc, removeAliasBlock(text))
+  console.log(`  npryx: removed. Open a new terminal, or run: source ${rc}`)
 }
 
 function printTrustList () {
@@ -588,7 +698,11 @@ function scanStatus () {
 async function main () {
   const args = process.argv.slice(2)
 
+  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) process.stdout.write(helpText())
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) process.stdout.write(`npryx ${require('./package.json').version}, npx `)
   if (args[0] === '--alias') { process.stdout.write(aliasLine()); return }
+  if (args[0] === '--setup-alias') return setupAlias(args.slice(1))
+  if (args[0] === '--remove-alias') return removeAlias(args.slice(1))
   if (args[0] === '--trust-list') return printTrustList()
   if (args[0] === '--forget') return forget(args[1])
   if (args[0] === '--scan-config') return scanSetup(args.slice(1))
@@ -680,5 +794,6 @@ if (require.main === module) {
 module.exports = {
   parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat,
   trustMatch, isAllowed, parseAllow, pinArgs, withoutYes, localBin,
-  scanConfig, verifyEnvelope, scanVerdict, renderScan
+  scanConfig, verifyEnvelope, scanVerdict, renderScan,
+  aliasRcPath, aliasBlock, appendAliasBlock, hasAliasBlock, foreignNpxAlias, removeAliasBlock
 }

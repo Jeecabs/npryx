@@ -4,6 +4,7 @@
 // Each case: argv (+ env, trust store, project dir), then what must happen.
 
 import { test } from 'node:test'
+import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { npryx as run, check, pkg, skip } from './harness.mjs'
@@ -58,3 +59,31 @@ const CASES = [
 ]
 
 for (const { name, expect, ...setup } of CASES) test(name, { skip }, () => check(run({ views: VIEWS, ...setup }), expect))
+
+// --- shell alias: a suggestion, never forced ---------------------------------
+test('--setup-alias asks first: without a terminal or --yes it changes nothing', { skip }, () => {
+  const r = run({ argv: ['--setup-alias'], env: { SHELL: '/bin/zsh' } })
+  assert.strictEqual(r.status, 1)
+  assert.match(r.stdout, /This adds the following to .*\.zshrc/)
+  assert.ok(!fs.existsSync(r.home('.zshrc')), 'no file written')
+})
+
+test('--setup-alias --yes adds a marked block, once; --remove-alias takes it out', { skip }, () => {
+  const before = 'export PATH=$PATH:/opt/bin\n'
+  const r = run({ argv: ['--setup-alias', '--yes'], env: { SHELL: '/bin/zsh' }, homeFiles: { '.zshrc': before } })
+  assert.strictEqual(r.status, 0)
+  const rc = fs.readFileSync(r.home('.zshrc'), 'utf8')
+  assert.ok(rc.startsWith(before) && rc.includes("alias npx='npryx'"))
+  const again = run({ argv: ['--setup-alias', '--yes'], env: { SHELL: '/bin/zsh' }, homeFiles: { '.zshrc': rc } })
+  assert.match(again.stdout, /already set up/)
+  assert.strictEqual(fs.readFileSync(again.home('.zshrc'), 'utf8'), rc, 'idempotent')
+  const removed = run({ argv: ['--remove-alias', '--yes'], env: { SHELL: '/bin/zsh' }, homeFiles: { '.zshrc': rc } })
+  assert.strictEqual(fs.readFileSync(removed.home('.zshrc'), 'utf8'), before)
+})
+
+test('--setup-alias leaves an existing npx alias of your own alone', { skip }, () => {
+  const mine = "alias npx='my-wrapper'\n"
+  const r = run({ argv: ['--setup-alias', '--yes'], env: { SHELL: '/bin/bash' }, homeFiles: { '.bashrc': mine, '.bash_profile': mine } })
+  assert.strictEqual(r.status, 1)
+  assert.match(r.stderr, /already defines its own npx alias/)
+})
