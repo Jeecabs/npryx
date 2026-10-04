@@ -27,8 +27,6 @@ jobs:
       - run: npm test
       - name: Tag matches package.json
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
-      # Trusted publishing (configured on npmjs.com) needs no token; NPM_TOKEN is the
-      # fallback for the very first publish, before the package exists to configure.
+      # Trusted publishing (configured on npmjs.com for this workflow and the npm
+      # environment): npm exchanges the job's OIDC token, so no npm token exists.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
