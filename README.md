@@ -245,6 +245,12 @@ npm install -g npryx
 npryx cowsay "moo"
 ```
 
+Or with Homebrew:
+
+```
+brew install jeecabs/tap/npryx
+```
+
 Want every `npx` to go through npryx? That's optional. You can keep typing `npryx`
 when you want the check, or alias `npx` to it:
 
