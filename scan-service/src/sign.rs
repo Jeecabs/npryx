@@ -31,16 +31,26 @@ impl Keys {
         Self::from_seed(seed)
     }
 
-    /// Load the base64 seed at `path`, creating it (mode 0600) on first start.
+    /// A base64 seed, as written to the key file.
+    pub fn from_b64(text: &str) -> std::io::Result<Self> {
+        let bytes = B64
+            .decode(text.trim())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let seed: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "signing key must be 32 bytes"))?;
+        Ok(Self::from_seed(seed))
+    }
+
+    /// The seed from `NPRYX_SCAN_SIGNING_SEED` if set (for platforms whose disk
+    /// doesn't survive a restart), else the base64 seed at `path`, creating it
+    /// (mode 0600) on first start.
     pub fn load_or_create(path: &Path) -> std::io::Result<Self> {
+        if let Some(seed) = std::env::var("NPRYX_SCAN_SIGNING_SEED").ok().filter(|s| !s.trim().is_empty()) {
+            return Self::from_b64(&seed);
+        }
         if let Ok(text) = std::fs::read_to_string(path) {
-            let bytes = B64
-                .decode(text.trim())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            let seed: [u8; 32] = bytes
-                .try_into()
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "signing key must be 32 bytes"))?;
-            return Ok(Self::from_seed(seed));
+            return Self::from_b64(&text);
         }
         let keys = Self::generate();
         if let Some(dir) = path.parent() {
@@ -103,5 +113,7 @@ mod tests {
         let b = Keys::load_or_create(&p).unwrap();
         assert_eq!(a.public_b64(), b.public_b64());
         assert_eq!(a.key_id.len(), 16);
+        let written = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(Keys::from_b64(&written).unwrap().public_b64(), a.public_b64(), "the env seed reads the file's format");
     }
 }

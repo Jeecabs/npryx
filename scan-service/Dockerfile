@@ -7,6 +7,10 @@
 # --build-arg WITH_DOCKER_CLI=1, set NPRYX_SCAN_SANDBOX=docker, and give the
 # container a Docker daemon (e.g. -v /var/run/docker.sock:/var/run/docker.sock).
 # Only do that on a host dedicated to scanning: the socket is root-equivalent.
+#
+# Where the disk doesn't survive a restart, pass the signing key as
+# NPRYX_SCAN_SIGNING_SEED (the base64 seed from `npryx-scan pubkey`'s key file):
+# clients pin its public half, so it must never change.
 
 FROM rust:1-bookworm AS build
 WORKDIR /src
