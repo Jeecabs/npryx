@@ -233,13 +233,38 @@ function trustMatch (store, sum) {
   return { status: 'updated', from: known[known.length - 1], to: sum.version }
 }
 
-// NPRYX_ALLOW entries: `name` (any version), `name@version`, or an integrity
-// (`sha512-…`). For an unverifiable spec, only the exact spec or bare name match.
+// NPRYX_ALLOW entries: `name` (any version), `name@version`, an integrity
+// (`sha512-…`), or `name@version#integrity` (exactly those bytes, what --json
+// offers). For an unverifiable spec, only the exact spec or bare name match.
 function isAllowed (entries, spec, sum) {
   const candidates = sum
-    ? [sum.name, `${sum.name}@${sum.version}`, sum.integrity]
+    ? [sum.name, `${sum.name}@${sum.version}`, sum.integrity, sum.integrity && approvalToken(sum)]
     : [spec, splitSpec(spec) && splitSpec(spec).name]
   return entries.some(e => candidates.includes(e))
+}
+
+function approvalToken (sum) {
+  return `${sum.name}@${sum.version}#${sum.integrity}`
+}
+
+// The decision a non-interactive run acts on, per package. --json reports it.
+// Tampered bytes and confirmed threats come first: nothing overrides them.
+function decide (it, { forceYes, allow }) {
+  const d = (decision, reason) => ({ decision, reason })
+  if (it.kind === 'local') return d('allow', 'local')
+  if (it.trust && it.trust.status === 'tampered') return d('refuse', 'tampered')
+  if (scanVerdict(it.scan) === 'confirmed') return d('refuse', 'confirmed-threat')
+  if (it.trust && it.trust.status === 'trusted') return d('allow', 'trusted')
+  if (forceYes) return d('allow', 'yes')
+  if (isAllowed(allow, it.target.spec, it.sum)) return d('allow', 'allowed')
+  return it.sum ? d('needs-approval', 'untrusted') : d('refuse', 'unverifiable')
+}
+
+// The whole command is only as clear as its least clear package.
+const PRECEDENCE = ['tampered', 'confirmed-threat', 'unverifiable', 'untrusted']
+function overall (decisions) {
+  for (const r of PRECEDENCE) { const d = decisions.find(x => x.reason === r); if (d) return d }
+  return decisions[0] || { decision: 'allow', reason: 'nothing-to-install' }
 }
 
 function parseAllow (value) {
@@ -341,15 +366,17 @@ function ageString (iso) {
   return `${(days / 365).toFixed(1)}y ago`
 }
 
+// Each warning has a stable code, for --json.
 function warnings (s, downloads, squat) {
   const w = []
-  if (s.runsInstallScripts) w.push(`runs install scripts (${s.hooks.join(', ') || 'hasInstallScript'}) which execute code on install`)
-  if (s.deprecated) w.push(`deprecated: ${s.deprecated}`)
+  const add = (code, message) => w.push({ code, message })
+  if (s.runsInstallScripts) add('install-scripts', `runs install scripts (${s.hooks.join(', ') || 'hasInstallScript'}) which execute code on install`)
+  if (s.deprecated) add('deprecated', `deprecated: ${s.deprecated}`)
   const days = ageDays(s.published)
-  if (days != null && days < 30) w.push(`published only ${Math.round(days)}d ago, brand new with little scrutiny yet`)
-  if (downloads != null && downloads < 1000) w.push(`only ${downloads.toLocaleString()} weekly downloads, unusually low`)
-  if (squat) w.push(`did you mean "${squat}"? "${s.name}" is one edit away from a popular package, possible typosquat`)
-  if (NPM_SUBCOMMANDS.has(s.name)) w.push(`"${s.name}" is an npm subcommand. npryx wraps \`npx\` (npm exec), so this runs the registry package "${s.name}" rather than performing \`npm ${s.name}\`. Did you mean \`npm ${s.name} …\`?`)
+  if (days != null && days < 30) add('new-package', `published only ${Math.round(days)}d ago, brand new with little scrutiny yet`)
+  if (downloads != null && downloads < 1000) add('low-downloads', `only ${downloads.toLocaleString()} weekly downloads, unusually low`)
+  if (squat) add('typosquat', `did you mean "${squat}"? "${s.name}" is one edit away from a popular package, possible typosquat`)
+  if (NPM_SUBCOMMANDS.has(s.name)) add('npm-subcommand', `"${s.name}" is an npm subcommand. npryx wraps \`npx\` (npm exec), so this runs the registry package "${s.name}" rather than performing \`npm ${s.name}\`. Did you mean \`npm ${s.name} …\`?`)
   return w
 }
 
@@ -381,7 +408,7 @@ function render (s, ctx) {
   const w = warnings(s, downloads, squat)
   if (w.length) {
     lines.push(`  ⚠️  ${w.length} warning(s):`)
-    w.forEach(x => lines.push(`       • ${x}`))
+    w.forEach(x => lines.push(`       • ${x.message}`))
     lines.push('')
   }
   return lines.join('\n')
@@ -584,16 +611,24 @@ function helpText () {
 
   npryx <pkg>[@<version>] [args...]   preview, then run with npx (all npx flags work)
 
-  npryx --trust-list                  packages you've trusted
+  npryx --json <pkg>[@<version>] [args...]
+                                      for agents and scripts: check only, never runs or
+                                      prompts. One JSON document on stdout. Exit 0 allow,
+                                      3 needs approval, 1 refuse, 2 usage error
+
+  npryx --trust-list [--json]         packages you've trusted
   npryx --forget <pkg>[@<version>]    drop one from the trust store
   npryx --scan-config <url> [--token <t>] [--key <k>] [--deep]
                                       opt in to a remote scan service
-  npryx --scan-status | --scan-off    show or turn off remote scanning
+  npryx --scan-status [--json]        show whether remote scanning is on
+  npryx --scan-off                    turn off remote scanning
   npryx --setup-alias | --remove-alias
                                       optionally make \`npx\` run npryx (asks first)
   npryx --alias                       print the alias line instead
 
-  NPRYX_ALLOW=<name>[@<version>]      allow packages in CI (comma-separated)
+  NPRYX_ALLOW=<name>[@<version>]      allow packages in CI (comma-separated). Use
+                                      <name>@<version>#<integrity> to allow exactly those
+                                      bytes (what --json prints as "approve")
   NPRYX_YES=1                         opt out of the CI refusal entirely
 
 npx's own help follows.
@@ -694,29 +729,146 @@ function scanStatus () {
   console.log(`  api token ${cfg.token ? 'set' : 'not set'}, sandbox scans ${cfg.deep ? 'on' : 'off'}`)
 }
 
+// --- JSON mode (--json) ------------------------------------------------------
+// For agents and scripts: one JSON document on stdout, never a prompt, never a
+// run. The decision is the one a non-interactive `npryx <args>` acts on.
+const SCHEMA_VERSION = 1
+const EXIT = { allow: 0, refuse: 1, usage: 2, 'needs-approval': 3 }
+const NO_JSON = new Set(['--alias', '--setup-alias', '--remove-alias', '--forget', '--scan-config', '--scan-off'])
+const TRUST_STATUS = { unknown: 'new', trusted: 'trusted', updated: 'updated', tampered: 'tampered' }
+
+function usageError (message) {
+  return Object.assign(new Error(message), { code: 'usage' })
+}
+
+function scanReport (scan) {
+  if (!scan) return null
+  if (scan.error) return { status: 'unavailable', error: scan.error, signed: false, verdict: null, previous: null, findings: [] }
+  const r = scan.result
+  return {
+    status: r.status === 'integrity_mismatch' ? 'integrity-mismatch' : r.status,
+    error: null,
+    signed: scan.verified,
+    verdict: scanVerdict(scan),
+    previous: (r.previous && r.previous.version) || null,
+    findings: (r.findings || []).map(f => ({
+      id: f.id, severity: f.severity, title: f.title, phase: f.phase || null, destinations: f.destinations || [], newSincePrevious: Boolean(f.new_since_previous)
+    }))
+  }
+}
+
+function trustReport (store, it) {
+  if (!it.sum) return null
+  return {
+    status: TRUST_STATUS[it.trust.status],
+    approvedAt: it.trust.approvedAt || null,
+    trustedVersions: Object.keys(trustedVersions(store[it.sum.name]))
+  }
+}
+
+function packageReport (it, store) {
+  const s = it.sum
+  const squat = s ? typosquat(s.name) : null
+  const outside = it.kind === 'remote' && !it.error ? 'fetched from outside the npm registry (git, URL or alias), so npryx can\'t verify it' : null
+  return {
+    requested: it.target.spec,
+    kind: it.kind,
+    ...it.decision,
+    resolved: s ? `${s.name}@${s.version}` : null,
+    name: s ? s.name : null,
+    version: s ? s.version : null,
+    integrity: s ? s.integrity : null,
+    provenance: s ? s.provenance : null,
+    installScripts: s ? { runs: s.runsInstallScripts, hooks: s.hooks } : null,
+    published: s ? s.published : null,
+    weeklyDownloads: it.downloads ?? null,
+    maintainers: s ? s.maintainers : [],
+    repo: s ? s.repo : null,
+    deprecated: s ? s.deprecated : null,
+    typosquatOf: squat,
+    publicRegistry: s ? s.publicRegistry : null,
+    warnings: s ? warnings(s, it.downloads ?? null, squat) : [],
+    trust: trustReport(store, it),
+    scan: scanReport(it.scan),
+    approve: it.decision.decision === 'needs-approval' && s.integrity ? approvalToken(s) : null,
+    error: it.error || outside
+  }
+}
+
+const MESSAGES = {
+  trusted: 'every package is trusted, npryx would run it with no prompt',
+  local: 'local paths only, npryx would run them as given',
+  allowed: 'allowed by NPRYX_ALLOW',
+  yes: 'NPRYX_YES or a leading -y opts out of the check',
+  'nothing-to-install': 'nothing to install, npx would run with --no',
+  'local-bin': 'runs the bin installed in this project, npx would run with --no',
+  untrusted: 'not trusted yet: a human should review the packages, then approve them',
+  tampered: 'same version, different bytes than you approved. Nothing overrides this',
+  'confirmed-threat': 'the remote scan confirmed a threat. Nothing overrides this',
+  unverifiable: 'npryx could not verify a package against the registry'
+}
+
+function checkReport (args, p) {
+  const { decision, reason } = p.decision
+  const items = p.items || []
+  const pending = items.filter(it => it.decision.decision === 'needs-approval')
+  const tokens = pending.map(it => it.sum.integrity && approvalToken(it.sum))
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    decision,
+    reason,
+    message: MESSAGES[reason],
+    command: decision === 'refuse' ? null : { npx: p.npx, npryx: pinArgs(args, items) },
+    approve: pending.length && tokens.every(Boolean) ? tokens.join(',') : null,
+    packages: items.map(it => packageReport(it, p.store))
+  }
+}
+
+function trustListReport () {
+  const store = loadStore()
+  const packages = Object.keys(store).flatMap(name => Object.entries(trustedVersions(store[name]))
+    .map(([version, e]) => ({ name, version, integrity: e.integrity || null, approvedAt: e.approvedAt || null })))
+  return { schemaVersion: SCHEMA_VERSION, path: TRUST_PATH, packages }
+}
+
+function scanStatusReport () {
+  const cfg = scanConfig(process.env, loadJson(SCAN_CONFIG_PATH))
+  return { schemaVersion: SCHEMA_VERSION, enabled: Boolean(cfg), url: cfg ? cfg.url : null, keyPinned: Boolean(cfg && cfg.key), token: Boolean(cfg && cfg.token), deep: Boolean(cfg && cfg.deep) }
+}
+
+function emit (doc, code) {
+  process.stdout.write(JSON.stringify(doc, null, 2) + '\n')
+  process.exitCode = code
+}
+
+async function jsonMain (args) {
+  try {
+    if (args[0] === '--trust-list') return emit(trustListReport(), 0)
+    if (args[0] === '--scan-status') return emit(scanStatusReport(), 0)
+    if (NO_JSON.has(args[0])) throw usageError(`${args[0]} has no JSON mode`)
+    if (!args.length) throw usageError('usage: npryx --json <pkg>[@<version>] [args...]')
+    const parsed = parseArgs(args)
+    if (parsed.error) throw usageError(parsed.error)
+    const p = await plan(args, parsed, { downloads: true })
+    emit(checkReport(args, p), EXIT[p.decision.decision])
+  } catch (e) {
+    const code = e.code === 'usage' ? 'usage' : 'internal'
+    emit({ schemaVersion: SCHEMA_VERSION, error: { code, message: e.message } }, code === 'usage' ? EXIT.usage : 1)
+  }
+}
+
 // --- main --------------------------------------------------------------------
-async function main () {
-  const args = process.argv.slice(2)
 
-  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) process.stdout.write(helpText())
-  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) process.stdout.write(`npryx ${require('./package.json').version}, npx `)
-  if (args[0] === '--alias') { process.stdout.write(aliasLine()); return }
-  if (args[0] === '--setup-alias') return setupAlias(args.slice(1))
-  if (args[0] === '--remove-alias') return removeAlias(args.slice(1))
-  if (args[0] === '--trust-list') return printTrustList()
-  if (args[0] === '--forget') return forget(args[1])
-  if (args[0] === '--scan-config') return scanSetup(args.slice(1))
-  if (args[0] === '--scan-off') return scanOff()
-  if (args[0] === '--scan-status') return scanStatus()
-
-  const parsed = parseArgs(args)
-  if (parsed.error) refuse(`  npryx: ${parsed.error}`)
+// What npryx would do with these args, worked out without running anything.
+// The interactive run, the CI run and --json all act on this.
+async function plan (args, parsed, { downloads }) {
   const base = withoutYes(args, parsed)
   const tgts = targets(parsed, args)
+  const shortcut = (reason, npx) => ({ decision: { decision: 'allow', reason }, npx })
 
   // Nothing to install (`--help`, `-c` with no -p): hand to npx, but with --no
   // unless the user chose themselves, so it can't install behind our back.
-  if (!tgts.length) return runNpx(parsed.yes == null ? ['--no', ...args] : args)
+  if (!tgts.length) return shortcut('nothing-to-install', parsed.yes == null ? ['--no', ...args] : args)
 
   // `npx tsc` in a project with typescript runs the local bin; don't preview
   // the unrelated registry package `tsc`. `--no` makes npx refuse to install
@@ -725,14 +877,10 @@ async function main () {
   if (tgts.length === 1 && only.prefix === '' && parsed.packages.length === 0 && !parsed.prefix &&
       classify(only.spec) === 'registry' && !splitSpec(only.spec).version && !only.spec.startsWith('@') &&
       localBin(only.spec, process.cwd())) {
-    return runNpx(['--no', ...base])
+    return shortcut('local-bin', ['--no', ...base])
   }
 
-  const isTTY = process.stdin.isTTY && process.stderr.isTTY
-  const forceYes = parsed.yes === true || process.env.NPRYX_YES === '1'
-  const allow = parseAllow(process.env.NPRYX_ALLOW)
   const store = loadStore()
-
   const items = await Promise.all(tgts.map(async target => {
     const kind = classify(target.spec)
     if (kind !== 'registry') return { target, kind }
@@ -746,20 +894,48 @@ async function main () {
   }))
 
   const cleared = it => it.kind === 'local' || (it.trust && it.trust.status === 'trusted')
-  const pinned = withoutYes(pinArgs(args, items), parsed) // pin by original index, then strip
-  if (items.every(cleared)) {
-    for (const it of items) if (it.sum) console.error(`  npryx: ${it.sum.name}@${it.sum.version} trusted ✓ (approved ${it.trust.approvedAt})`)
-    return runNpx(['--yes', ...pinned])
-  }
-
   const pending = items.filter(it => !cleared(it))
-  // Downloads (interactive only) and the opt-in remote scan, in parallel.
-  // Only public-registry packages are ever sent to a scan service.
+  // Downloads and the opt-in remote scan, in parallel, for what still needs a
+  // decision. Only public-registry packages are ever sent to a scan service.
   const scanCfg = scanConfig(process.env, loadJson(SCAN_CONFIG_PATH))
   await Promise.all(pending.filter(it => it.sum).map(it => Promise.all([
-    isTTY && weeklyDownloads(it.sum).then(d => { it.downloads = d }),
+    downloads && weeklyDownloads(it.sum).then(d => { it.downloads = d }),
     scanCfg && it.sum.publicRegistry && it.sum.integrity && remoteScan(scanCfg, it.sum).then(s => { it.scan = s })
   ])))
+
+  const policy = { forceYes: parsed.yes === true || process.env.NPRYX_YES === '1', allow: parseAllow(process.env.NPRYX_ALLOW) }
+  for (const it of items) it.decision = decide(it, policy)
+  const pinned = withoutYes(pinArgs(args, items), parsed) // pin by original index, then strip
+  return { items, pending, store, pinned, npx: ['--yes', ...pinned], decision: overall(items.map(it => it.decision)) }
+}
+
+async function main () {
+  const args = process.argv.slice(2)
+
+  if (args[0] === '--json') return jsonMain(args.slice(1))
+  if (args.length === 2 && args[1] === '--json' && ['--trust-list', '--scan-status'].includes(args[0])) return jsonMain(args.slice(0, 1))
+  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) process.stdout.write(helpText())
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) process.stdout.write(`npryx ${require('./package.json').version}, npx `)
+  if (args[0] === '--alias') { process.stdout.write(aliasLine()); return }
+  if (args[0] === '--setup-alias') return setupAlias(args.slice(1))
+  if (args[0] === '--remove-alias') return removeAlias(args.slice(1))
+  if (args[0] === '--trust-list') return printTrustList()
+  if (args[0] === '--forget') return forget(args[1])
+  if (args[0] === '--scan-config') return scanSetup(args.slice(1))
+  if (args[0] === '--scan-off') return scanOff()
+  if (args[0] === '--scan-status') return scanStatus()
+
+  const parsed = parseArgs(args)
+  if (parsed.error) refuse(`  npryx: ${parsed.error}`)
+  const isTTY = process.stdin.isTTY && process.stderr.isTTY
+  const p = await plan(args, parsed, { downloads: isTTY })
+  if (!p.items) return runNpx(p.npx)
+
+  const { items, pending, pinned } = p
+  if (!pending.length) {
+    for (const it of items) if (it.sum) console.error(`  npryx: ${it.sum.name}@${it.sum.version} trusted ✓ (approved ${it.trust.approvedAt})`)
+    return runNpx(p.npx)
+  }
   for (const it of pending) {
     process.stderr.write(it.sum
       ? render(it.sum, { requested: it.requested, downloads: it.downloads ?? null, squat: typosquat(it.sum.name), trust: it.trust, scan: it.scan })
@@ -768,22 +944,21 @@ async function main () {
 
   // Never auto-run, and never offer to trust: altered bytes, or a confirmed
   // threat from the remote scan.
-  const blocked = it => (it.trust && it.trust.status === 'tampered') || scanVerdict(it.scan) === 'confirmed'
+  const blocked = it => ['tampered', 'confirmed-threat'].includes(it.decision.reason)
 
   // FAIL CLOSED: non-interactive runs need every pending package explicitly
   // allowed (or a blanket opt-out). Blocked packages are never auto-run.
   if (!isTTY) {
+    if (p.decision.decision === 'allow') return runNpx(p.npx)
     if (pending.some(blocked)) refuse('  npryx: refusing to run: a package above is tampered or a confirmed threat. NPRYX_YES and NPRYX_ALLOW do not override this.')
-    const ok = forceYes || pending.every(it => isAllowed(allow, it.target.spec, it.sum))
-    if (ok) return runNpx(['--yes', ...pinned])
     refuse('  npryx: refusing to auto-run in a non-interactive shell (fail-closed). Set NPRYX_ALLOW=<name>[@<version>] or NPRYX_YES=1 to override.')
   }
 
   const canTrust = pending.every(it => it.sum && it.sum.integrity && !blocked(it))
   const ans = await chooseAction(canTrust)
-  if (ans === 'y') return runNpx(['--yes', ...pinned])
+  if (ans === 'y') return runNpx(p.npx)
   if (ans === 's') return runNpx(['--yes', '--ignore-scripts', ...pinned])
-  if (ans === 'a' && canTrust) { recordTrust(pending.map(it => it.sum)); return runNpx(['--yes', ...pinned]) }
+  if (ans === 'a' && canTrust) { recordTrust(pending.map(it => it.sum)); return runNpx(p.npx) }
   refuse('  aborted.')
 }
 
@@ -793,7 +968,7 @@ if (require.main === module) {
 
 module.exports = {
   parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat,
-  trustMatch, isAllowed, parseAllow, pinArgs, withoutYes, localBin,
+  trustMatch, isAllowed, parseAllow, approvalToken, decide, overall, pinArgs, withoutYes, localBin,
   scanConfig, verifyEnvelope, scanVerdict, renderScan,
   aliasRcPath, aliasBlock, appendAliasBlock, hasAliasBlock, foreignNpxAlias, removeAliasBlock
 }

@@ -17,6 +17,17 @@ export function check (got, want) {
   for (const k of ['status', 'signal', 'npx', 'npm']) if (k in want) assert.deepStrictEqual(got[k], want[k], k)
   if (want.stderr) assert.match(got.stderr, want.stderr)
   if (want.stdout) assert.match(got.stdout, want.stdout)
+  if (want.json) subset(JSON.parse(got.stdout), want.json)
+}
+
+// `want` is a partial document: listed keys must match (arrays by length too),
+// regexes match strings, anything left out is not checked.
+export function subset (got, want, at = 'json') {
+  if (want instanceof RegExp) return assert.match(got, want, at)
+  if (!want || typeof want !== 'object') return assert.deepStrictEqual(got, want, at)
+  assert.ok(got && typeof got === 'object', `${at} is missing`)
+  if (Array.isArray(want)) assert.strictEqual(got.length, want.length, `${at}.length`)
+  for (const k of Object.keys(want)) subset(got[k], want[k], `${at}.${k}`)
 }
 
 export function npryx ({ argv, env = {}, store, project, views = {}, homeFiles = {} }) {
