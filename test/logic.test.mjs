@@ -4,6 +4,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert'
+import path from 'node:path'
 import * as hegel from '@hegeldev/hegel'
 import * as gs from '@hegeldev/hegel/generators'
 import npryx from '../npryx.js'
@@ -156,10 +157,11 @@ prop('--remove-alias exactly undoes --setup-alias, for any existing config', tc 
 
 test('alias: the right startup file per shell, and a foreign npx alias is left alone', () => {
   const none = () => false
-  assert.strictEqual(aliasRcPath('zsh', '/h', 'darwin', none), '/h/.zshrc')
-  assert.strictEqual(aliasRcPath('fish', '/h', 'linux', none), '/h/.config/fish/config.fish')
-  assert.strictEqual(aliasRcPath('bash', '/h', 'linux', none), '/h/.bashrc')
-  assert.strictEqual(aliasRcPath('bash', '/h', 'darwin', f => f === '/h/.bash_profile'), '/h/.bash_profile')
+  const h = (...p) => path.join('/h', ...p)
+  assert.strictEqual(aliasRcPath('zsh', '/h', 'darwin', none), h('.zshrc'))
+  assert.strictEqual(aliasRcPath('fish', '/h', 'linux', none), h('.config', 'fish', 'config.fish'))
+  assert.strictEqual(aliasRcPath('bash', '/h', 'linux', none), h('.bashrc'))
+  assert.strictEqual(aliasRcPath('bash', '/h', 'darwin', f => f === h('.bash_profile')), h('.bash_profile'))
   assert.ok(foreignNpxAlias("alias npx='something-else'\n"))
   assert.ok(!foreignNpxAlias(appendAliasBlock('export X=1\n', 'zsh')), 'our own block is not foreign')
 })
