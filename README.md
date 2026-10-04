@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/npryx-logo.png" alt="npryx logo" width="180" />
+  <img src="https://raw.githubusercontent.com/Jeecabs/npryx/latest/assets/npryx-logo.png" alt="npryx logo" width="180" />
 </p>
 
 <h1 align="center">npryx</h1>
@@ -170,14 +170,18 @@ npm install -g npryx
 npryx cowsay "moo"
 ```
 
-Want every `npx` to go through npryx? Add an alias (npryx prints the right line
-for your shell — it never edits your rc for you):
+Want every `npx` to go through npryx? That's optional. You can keep typing `npryx`
+when you want the check, or alias `npx` to it:
 
 ```
-npryx --alias
-# → add to ~/.zshrc, then restart your shell:
-#   alias npx='npryx'
+npryx --setup-alias    # shows the exact lines and the file, then asks before adding them
+npryx --remove-alias   # takes out exactly that block again
+npryx --alias          # just prints the line, if you'd rather edit your config yourself
 ```
+
+`--setup-alias` supports zsh, bash and fish. It adds one clearly marked block, does
+nothing if it's already there, and won't touch an `npx` alias you've defined yourself.
+With the alias in place, `command npx …` still runs the real npx for a single command.
 
 ## Prior art
 
@@ -188,16 +192,19 @@ wrapping **`npx` execution** specifically, **failing closed**, offering the inli
 
 ## Roadmap
 
-npryx isn't on npm yet. Planned, roughly in order:
-
-- **Publish with provenance.** Ship npryx itself via `npm publish --provenance` from
-  CI using OIDC trusted publishing (no long-lived token) — so `npryx npryx` shows its
-  own `provenance ✓`. Practise what it preaches.
+- **Hosted scan service.** The scan service (`scan-service/`) runs today if you host it
+  yourself. A hosted version, so you can opt in without running anything, is next.
 - **Transitive install-script preview.** Today npryx previews the **target** only, but
-  the real risk is a *dependency's* `postinstall`. A metadata-only resolve
-  (`npm install --package-lock-only --ignore-scripts` — no download, nothing executed,
-  ~3s) surfaces every package in the tree that runs install scripts. The TOFU store
-  would pin that set, so a trusted target re-prompts when its tree changes.
+  the real risk is often a *dependency's* `postinstall`. A metadata-only resolve
+  (`npm install --package-lock-only --ignore-scripts`: no download, nothing executed)
+  surfaces every package in the tree that runs install scripts. The trust store would
+  pin that set, so a trusted target re-prompts when its tree changes.
+- **Local static scan.** Compile the scan service's analyzer to WebAssembly and ship it
+  in the npm package, so the "does this send data somewhere" check can run on your own
+  machine with nothing sent anywhere.
+
+npryx is published from CI with provenance (`.github/workflows/release.yml`), so
+`npryx npryx` shows its own `provenance ✓`.
 
 ## License
 

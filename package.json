@@ -12,6 +12,10 @@
     "test": "node --test \"test/*.test.mjs\""
   },
   "repository": "github:Jeecabs/npryx",
+  "homepage": "https://github.com/Jeecabs/npryx#readme",
+  "bugs": {
+    "url": "https://github.com/Jeecabs/npryx/issues"
+  },
   "keywords": [
     "npx",
     "npm",

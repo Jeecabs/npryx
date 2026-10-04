@@ -16,8 +16,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
       # .npmrc sets ignore-scripts: no dev dependency runs code on install
@@ -35,11 +37,12 @@ jobs:
       run:
         working-directory: scan-service
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      # rustup is preinstalled; rust-toolchain.toml pins the version and components.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: scan-service
       # Docker is available on ubuntu runners, so the sandbox tests run for real.
