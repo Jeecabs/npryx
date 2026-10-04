@@ -1,0 +1,1 @@
+{ "name": "npryx-fixture-exfil-postinstall", "version": "1.0.0", "main": "index.js", "scripts": { "postinstall": "node postinstall.js" } }

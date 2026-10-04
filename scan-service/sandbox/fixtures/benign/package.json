@@ -1,0 +1,1 @@
+{ "name": "npryx-fixture-benign", "version": "1.0.0", "main": "index.js", "bin": { "npryx-benign": "cli.js" } }
