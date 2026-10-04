@@ -74,7 +74,7 @@ the usual hiding: joined string pieces, `String.fromCharCode`, base64 and hex de
 
 | Kind | Examples | Treatment |
 |---|---|---|
-| `raw-ip` | `45.77.12.9` | High at install, medium otherwise |
+| `raw-ip` | `203.0.113.7` | High at install, medium otherwise |
 | `collector` | webhook.site, pipedream, requestbin, interact.sh / oast, Burp Collaborator, canarytokens | High: these exist to collect data |
 | `chat-webhook` | Discord webhooks, Telegram bot API | High: common exfil channels |
 | `paste` | pastebin and similar | High |
@@ -160,7 +160,7 @@ Example preview lines:
 ```
   remote scan   ⛔ confirmed threat   compared with 1.5.0
                 ⛔ sent your npm token over the network (on install), new since 1.5.0
-                    → https://45.77.12.9/c
+                    → https://203.0.113.7/c
 ```
 
 ```

@@ -874,7 +874,7 @@ mod tests {
         let body = base64::engine::general_purpose::STANDARD.encode(format!("{{\"t\":\"{C}\"}}"));
         let ev = format!(
             "{}\n{}\n{}\nnot json\n{}\n",
-            serde_json::json!({"kind":"http","target":"https://45.77.12.9/c","phase":"install","payload_b64": base64::engine::general_purpose::STANDARD.encode(&body)}),
+            serde_json::json!({"kind":"http","target":"https://203.0.113.7/c","phase":"install","payload_b64": base64::engine::general_purpose::STANDARD.encode(&body)}),
             serde_json::json!({"kind":"file_read","target":"~/.npmrc","phase":"install"}),
             serde_json::json!({"kind":"exec","target":"node-gyp rebuild","phase":"install"}),
             serde_json::json!({"kind":"dns","target":"6869.exfil.example.com","phase":"import"}),
@@ -937,7 +937,7 @@ mod tests {
         let Some(r) = sandbox("exfil-postinstall", "npryx-fixture-exfil-postinstall").await else { return };
         assert_eq!(r.status, "ok", "{:?}", r.reason);
         assert_eq!(r.runs, vec!["dev", "ci"]);
-        let hit = r.attempts.iter().find(|a| a.kind == "http" && a.target.contains("45.77.12.9")).expect("http attempt");
+        let hit = r.attempts.iter().find(|a| a.kind == "http" && a.target.contains("203.0.113.7")).expect("http attempt");
         assert_eq!(hit.phase, "install");
         assert!(hit.canary_hits.contains(&"npm-token".to_string()), "{hit:?}");
     }

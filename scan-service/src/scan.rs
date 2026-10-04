@@ -321,7 +321,7 @@ mod tests {
             reason: None,
             runs: vec!["dev".into(), "ci".into()],
             attempts: vec![
-                Attempt { kind: "http".into(), target: "https://45.77.12.9/c".into(), phase: "install".into(), run: "ci".into(), payload_preview: Some("eyJ…".into()), canary_hits: vec!["npm-token".into()] },
+                Attempt { kind: "http".into(), target: "https://203.0.113.7/c".into(), phase: "install".into(), run: "ci".into(), payload_preview: Some("eyJ…".into()), canary_hits: vec!["npm-token".into()] },
                 Attempt { kind: "dns".into(), target: "x.oast.fun".into(), phase: "import".into(), run: "dev".into(), payload_preview: None, canary_hits: vec![] },
                 Attempt { kind: "http".into(), target: "https://registry.npmjs.org/x".into(), phase: "install".into(), run: "dev".into(), payload_preview: None, canary_hits: vec![] },
             ],

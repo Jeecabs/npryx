@@ -1,1 +1,6 @@
-{ "name": "npryx-fixture-dns-import", "version": "1.0.0", "main": "index.js" }
+{
+  "name": "npryx-fixture-dns-import",
+  "private": true,
+  "version": "1.0.0",
+  "main": "index.js"
+}

@@ -103,10 +103,8 @@ fn home_hosts(m: &Value) -> (Vec<String>, Option<String>) {
         }
         _ => {}
     }
-    for k in ["homepage"] {
-        if let Some(u) = m.get(k).and_then(|u| u.as_str()) {
-            urls.push(u.to_string());
-        }
+    if let Some(u) = m.get("homepage").and_then(|u| u.as_str()) {
+        urls.push(u.to_string());
     }
     if let Some(u) = m.get("bugs").and_then(|b| b.get("url")).and_then(|u| u.as_str()) {
         urls.push(u.to_string());

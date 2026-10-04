@@ -27,7 +27,7 @@ const result = (name, verdict, findings = [], extra = {}) => {
   const v = VIEWS[name]
   return { schema: 1, status: 'done', analyzer: 'fake', name, version: v.version, integrity: v.dist.integrity, previous: { version: '0.9.0', integrity: 'sha512-prev' }, verdict, findings, network: { destinations: [] }, sandbox: null, ...extra }
 }
-const EXFIL = { id: 'sandbox.canary-exfil', severity: 'confirmed', title: 'sent your npm token over the network', phase: 'install', destinations: ['https://45.77.12.9/c'], new_since_previous: true, source: 'sandbox' }
+const EXFIL = { id: 'sandbox.canary-exfil', severity: 'confirmed', title: 'sent your npm token over the network', phase: 'install', destinations: ['https://203.0.113.7/c'], new_since_previous: true, source: 'sandbox' }
 const COLLECTOR = { id: 'net.collector-destination', severity: 'high', title: 'sends data to a request-catcher service', phase: 'import', destinations: ['https://webhook.site/abc'], new_since_previous: true, source: 'static' }
 
 // What the fake service answers, per package name.
@@ -94,7 +94,7 @@ const CASES = [
   { name: 'the api token is sent as a bearer token', argv: ['cowsay'], env: { ...ALLOW('cowsay'), NPRYX_SCAN_TOKEN: 't0k' }, expect: { auth: 'Bearer t0k' } },
 
   // results can only add caution
-  { name: 'a confirmed threat is refused even with NPRYX_YES', argv: ['evil-pkg'], env: { NPRYX_YES: '1' }, expect: { ...REFUSED, stderr: /confirmed threat[\s\S]*sent your npm token[\s\S]*45\.77\.12\.9[\s\S]*refusing to run/ } },
+  { name: 'a confirmed threat is refused even with NPRYX_YES', argv: ['evil-pkg'], env: { NPRYX_YES: '1' }, expect: { ...REFUSED, stderr: /confirmed threat[\s\S]*sent your npm token[\s\S]*203\.0\.113\.7[\s\S]*refusing to run/ } },
   { name: 'a confirmed threat is refused even when allowed by name', argv: ['evil-pkg'], env: ALLOW('evil-pkg'), expect: REFUSED },
   { name: 'suspicious findings are shown but do not change the decision', argv: ['sus-pkg'], env: ALLOW('sus-pkg'), expect: { status: 0, stderr: /suspicious[\s\S]*webhook\.site[\s\S]*--ignore-scripts won't help here, this code runs on import/ } },
 

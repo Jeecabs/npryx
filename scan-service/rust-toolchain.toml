@@ -1,0 +1,4 @@
+[toolchain]
+# Pinned so new clippy lints arrive deliberately, not on a random CI run.
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
