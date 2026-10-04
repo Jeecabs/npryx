@@ -259,6 +259,54 @@ function pinArgs (args, items) {
   return out
 }
 
+// --- terminal styling --------------------------------------------------------
+// Plain text unless the stream is a terminal. FORCE_COLOR wins over NO_COLOR,
+// as in Node itself, and FORCE_COLOR=0 turns colour off.
+function useColor (stream, env) {
+  if (env.FORCE_COLOR != null && env.FORCE_COLOR !== '') return !['0', 'false'].includes(env.FORCE_COLOR)
+  if (env.NO_COLOR != null && env.NO_COLOR !== '') return false
+  return Boolean(stream && stream.isTTY) && env.TERM !== 'dumb'
+}
+
+function palette (on) {
+  const sgr = (open, close) => s => on ? `\x1b[${open}m${s}\x1b[${close}m` : String(s)
+  const c = { bold: sgr(1, 22), dim: sgr(2, 22), red: sgr(31, 39), green: sgr(32, 39), yellow: sgr(33, 39) }
+  return { ...c, good: c.green('✓'), warn: c.yellow('!'), bad: c.red('✗') }
+}
+
+const ERR = palette(useColor(process.stderr, process.env))
+const OUT = palette(useColor(process.stdout, process.env))
+
+// Terminal width, or 0 (never wrap) when the output is going to a file or pipe.
+function columns (stream) {
+  return stream.isTTY ? stream.columns || 80 : 0
+}
+
+// Word-wrap plain text to `cols`, continuing at `indent`. Words too long for a
+// line (URLs, hashes) are split rather than overflowing.
+function wrap (text, indent, cols) {
+  if (!cols) return String(text)
+  const room = Math.max(cols - indent - 1, 20)
+  const lines = []
+  let line = ''
+  for (let word of String(text).split(' ')) {
+    while (word.length > room) {
+      if (line) { lines.push(line); line = '' }
+      lines.push(word.slice(0, room))
+      word = word.slice(room)
+    }
+    if (line && line.length + 1 + word.length > room) { lines.push(line); line = word } else line = line ? `${line} ${word}` : word
+  }
+  lines.push(line)
+  return lines.join('\n' + ' '.repeat(indent))
+}
+
+// One `label   value` line of a preview. `value` may already be styled, so
+// callers wrap the plain text before colouring it.
+function row (c, label, value) {
+  return `  ${c.dim(label.padEnd(12))}  ${value}`
+}
+
 // --- remote scan (opt-in) -----------------------------------------------------
 // Off unless the user configures a service (docs/scan-api.md). Results can only
 // ADD warnings: an unreachable, slow or unverifiable service changes nothing.
@@ -295,33 +343,39 @@ function scanVerdict (scan) {
 
 const PHASE = { install: 'on install', import: 'on import', runtime: 'when run' }
 
-function renderScan (scan) {
+function renderScan (scan, c = ERR, cols = 0) {
   if (!scan) return []
-  const pad = '                '
-  if (scan.error) return [`  remote scan   unavailable (${scan.error}), nothing changed`]
+  const pad = ' '.repeat(16)
+  const head = text => row(c, 'remote scan', text)
+  if (scan.error) return [head(c.dim(`unavailable (${scan.error}), nothing changed`))]
   const r = scan.result
   const unsigned = scan.verified ? '' : ' (unsigned)'
-  if (r.status === 'pending') return [`  remote scan   queued${unsigned}, run again in a moment for results`]
+  if (r.status === 'pending') return [head(`queued${unsigned}, run again in a moment for results`)]
   if (r.status === 'integrity_mismatch') {
-    return [`  remote scan   ⛔ the registry serves different bytes for this version than npryx resolved${unsigned}`,
+    return [head(`${c.bad} ${c.red(wrap(`the registry serves different bytes for this version than npryx resolved${unsigned}`, 18, cols))}`),
       `${pad}registry has ${String(r.registry_integrity).slice(0, 24)}…`]
   }
-  const head = { confirmed: '⛔ confirmed threat', suspected: '⚠️  suspicious', info: 'notes', clean: '✓ nothing found (not a guarantee)' }[r.verdict] || r.verdict
-  const lines = [`  remote scan   ${head}${unsigned}${r.previous ? `   compared with ${r.previous.version}` : ''}`]
+  const status = {
+    confirmed: `${c.bad} ${c.red('confirmed threat')}`,
+    suspected: `${c.warn} ${c.yellow('suspicious')}`,
+    info: 'notes',
+    clean: `${c.good} nothing found (not a guarantee)`
+  }[r.verdict] || r.verdict
+  const lines = [head(`${status}${unsigned}${r.previous ? c.dim(`   compared with ${r.previous.version}`) : ''}`)]
   const findings = [...(r.findings || [])].sort((a, b) => SEVERITY.indexOf(b.severity) - SEVERITY.indexOf(a.severity))
   for (const f of findings.slice(0, 6)) {
-    const mark = f.severity === 'confirmed' ? '⛔' : f.severity === 'high' || f.severity === 'medium' ? '⚠️ ' : '•'
+    const mark = f.severity === 'confirmed' ? c.bad : f.severity === 'high' || f.severity === 'medium' ? c.warn : c.dim('-')
     const when = PHASE[f.phase] ? ` (${PHASE[f.phase]})` : ''
     const isNew = f.new_since_previous && r.previous ? `, new since ${r.previous.version}` : ''
-    lines.push(`${pad}${mark} ${f.title}${when}${isNew}`)
+    lines.push(`${pad}${mark} ${wrap(`${f.title}${when}${isNew}`, 18, cols)}`)
     // the service writes § for parts of a URL it couldn't resolve statically
-    for (const d of (f.destinations || []).slice(0, 2)) lines.push(`${pad}    → ${d.replace(/§/g, '*')}`)
+    for (const d of (f.destinations || []).slice(0, 2)) lines.push(`${pad}  ${c.dim('→')} ${wrap(d.replace(/§/g, '*'), 20, cols)}`)
   }
-  if (findings.length > 6) lines.push(`${pad}  and ${findings.length - 6} more`)
+  if (findings.length > 6) lines.push(`${pad}${c.dim(`and ${findings.length - 6} more`)}`)
   if (r.sandbox && r.sandbox.status !== 'ok') lines.push(`${pad}sandbox ${r.sandbox.status}${r.sandbox.reason ? `: ${r.sandbox.reason}` : ''}`)
   // [s] only stops lifecycle scripts; say so when the risky code runs later.
   if (findings.some(f => (f.severity === 'high' || f.severity === 'confirmed') && (f.phase === 'import' || f.phase === 'runtime'))) {
-    lines.push(`${pad}note: [s] --ignore-scripts won't help here, this code runs ${findings.some(f => f.phase === 'import') ? 'on import' : 'when the package runs'}`)
+    lines.push(`${pad}${wrap(`note: [s] --ignore-scripts won't help here, this code runs ${findings.some(f => f.phase === 'import') ? 'on import' : 'when the package runs'}`, 16, cols)}`)
   }
   return lines
 }
@@ -353,45 +407,62 @@ function warnings (s, downloads, squat) {
   return w
 }
 
-function render (s, ctx) {
-  const { requested, downloads, squat, trust } = ctx
-  const lines = ['', '  npryx: about to fetch & run a package from the npm registry', '']
+// The conclusion, first: one line the eye lands on, then the reasons.
+function verdict (id, w, trust, scan, c, cols) {
+  const v = scanVerdict(scan)
+  const head = (mark, paint, text) => `  ${mark} ${paint(wrap(text, 4, cols))}`
+  const lines = []
   if (trust && trust.status === 'tampered') {
-    lines.push(`  ⛔ ${s.name}@${s.version} is not the bytes you approved: same version, different integrity.`)
-    lines.push('      npm never lets a version be republished, so a registry, mirror or proxy is')
-    lines.push('      serving altered code. Do not run this.')
-    lines.push('')
-  } else if (trust && trust.status === 'updated') {
-    lines.push(`  note: you trusted ${s.name}@${trust.from}; this is ${trust.to}, a version you haven't reviewed.`)
-    lines.push('')
+    const why = ['Same version, different integrity. npm never lets a version be republished,', 'so a registry, mirror or proxy is serving altered code.']
+    lines.push(head(c.bad, s => c.bold(c.red(s)), `do not run ${id}: it is not the bytes you approved`),
+      ...(cols && cols < 80 ? [wrap(why.join(' '), 4, cols)] : why).map(l => '    ' + l))
+  } else if (v === 'confirmed') {
+    const why = scan.result.status === 'integrity_mismatch' ? 'the registry serves different bytes than npryx resolved' : 'the remote scan confirmed a threat'
+    lines.push(head(c.bad, s => c.bold(c.red(s)), `do not run ${id}: ${why}`))
+  } else if (w.length || v === 'suspected') {
+    const found = [w.length && `${w.length} ${w.length === 1 ? 'warning' : 'warnings'}`, v === 'suspected' && 'suspicious scan findings'].filter(Boolean)
+    lines.push(head(c.warn, c.bold, `${id}: ${found.join(' and ')}, review before running`))
+  } else {
+    lines.push(head(c.good, c.bold, `${id}: no warnings`))
   }
-  const dl = downloads != null ? downloads.toLocaleString() : (s.publicRegistry ? 'unknown' : 'n/a (not the public registry)')
-  lines.push(
-    `  package       ${s.name}@${s.version}   (asked: ${requested || 'latest'})`,
-    `  published     ${ageString(s.published)}`,
-    `  weekly dl     ${dl}`,
-    `  maintainers   ${s.maintainers.length ? s.maintainers.slice(0, 3).join(', ') + (s.maintainers.length > 3 ? ' …' : '') : 'unknown'}`,
-    `  repo          ${s.repo || 'none listed'}`,
-    `  integrity     ${s.integrity ? s.integrity.slice(0, 24) + '…' : 'unknown'}`,
-    `  provenance    ${s.provenance ? '✓ ' + s.provenance : 'none'}`,
-    `  install hook  ${s.runsInstallScripts ? '⚠️  yes, runs code on install' : '✓ none'}`,
-    ...renderScan(ctx.scan),
-    ''
-  )
+  for (const x of w) lines.push(`    ${c.dim('-')} ${wrap(x, 6, cols)}`)
+  return lines
+}
+
+function render (s, ctx, c = ERR, cols = columns(process.stderr)) {
+  const { requested, downloads, squat, trust, scan } = ctx
+  const id = `${s.name}@${s.version}`
   const w = warnings(s, downloads, squat)
-  if (w.length) {
-    lines.push(`  ⚠️  ${w.length} warning(s):`)
-    w.forEach(x => lines.push(`       • ${x}`))
-    lines.push('')
+  const title = wrap('npryx: about to fetch & run a package from the npm registry', 2, cols)
+  const lines = ['', `  ${c.bold('npryx:')}${title.slice(6)}`, '', ...verdict(id, w, trust, scan, c, cols), '']
+  if (trust && trust.status === 'updated') {
+    lines.push(`  ${wrap(`note: you trusted ${s.name}@${trust.from}; this is ${trust.to}, a version you haven't reviewed.`, 2, cols)}`, '')
   }
+  const fresh = ageDays(s.published) != null && ageDays(s.published) < 30
+  const dl = downloads != null ? downloads.toLocaleString() : (s.publicRegistry ? 'unknown' : 'n/a (not the public registry)')
+  const field = (label, text, paint = x => x) => row(c, label, paint(wrap(text, 16, cols)))
+  const marked = (label, mark, text, paint = x => x) => row(c, label, `${mark} ${paint(wrap(text, 18, cols))}`)
+  lines.push(
+    row(c, 'package', `${c.bold(id)}${c.dim(`   (asked: ${requested || 'latest'})`)}`),
+    field('published', ageString(s.published), fresh ? c.yellow : undefined),
+    field('weekly dl', dl, downloads == null ? c.dim : downloads < 1000 ? c.yellow : undefined),
+    field('maintainers', s.maintainers.length ? s.maintainers.slice(0, 3).join(', ') + (s.maintainers.length > 3 ? ' …' : '') : 'unknown'),
+    field('repo', s.repo || 'none listed', s.repo ? undefined : c.dim),
+    field('integrity', s.integrity ? s.integrity.slice(0, 24) + '…' : 'unknown'),
+    s.provenance ? marked('provenance', c.good, s.provenance) : field('provenance', 'none', c.dim),
+    s.runsInstallScripts ? marked('install hook', c.warn, 'yes, runs code on install', c.yellow) : marked('install hook', c.good, 'none'),
+    ...renderScan(scan, c, cols),
+    '', ''
+  )
   return lines.join('\n')
 }
 
-function renderUnverified (it) {
+function renderUnverified (it, c = ERR, cols = columns(process.stderr)) {
   const why = it.error
-    ? `could not verify "${it.target.spec}": ${it.error}\n      This may be a typo, an unpublished/private package, or a registry issue.`
+    ? `could not verify "${it.target.spec}": ${it.error}`
     : `"${it.target.spec}" is fetched from outside the npm registry (git, URL or alias), so npryx can't verify it.`
-  return `\n  ⚠️  npryx: ${why}\n`
+  const more = it.error ? `\n           ${wrap('This may be a typo, an unpublished/private package, or a registry issue.', 11, cols)}` : ''
+  return `\n  ${c.bold('npryx:')} ${c.warn} ${c.bold(wrap(why, 11, cols))}${more}\n\n`
 }
 
 // --- IO: npm, registry lookup, downloads, trust store, exec ------------------
@@ -504,12 +575,29 @@ function runNpx (args) {
   child.on('error', e => { console.error('npryx: failed to launch npx:', e.message); process.exit(1) })
 }
 
+// The keys stand out, and the default is marked. On a narrow terminal the
+// choices stack rather than wrap mid-option.
+function promptText (canTrust, c = ERR, cols = columns(process.stderr)) {
+  const options = [['y', 'run'], ['s', 'run with --ignore-scripts (safer)'], canTrust && ['a', 'always-trust this version'], ['N', 'abort (default)']].filter(Boolean)
+  const plain = '  ' + options.map(([k, text]) => `[${k}] ${text}`).join('   ') + ': '
+  const shown = options.map(([k, text]) => `${c.dim('[')}${c.bold(k)}${c.dim(']')} ${k === 'N' ? c.dim(text) : text}`)
+  if (cols && plain.length > cols) return shown.map(o => `  ${o}\n`).join('') + '  choice: '
+  return `  ${shown.join('   ')}: `
+}
+
 async function chooseAction (canTrust) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
-  const trust = canTrust ? '   [a] always-trust this version' : ''
-  const ans = (await rl.question(`  [y] run   [s] run with --ignore-scripts (safer)${trust}   [N] abort: `)).trim().toLowerCase()
+  const text = promptText(canTrust)
+  const cut = text.lastIndexOf('\n') + 1 // readline redraws only the last line
+  process.stderr.write(text.slice(0, cut))
+  const ans = (await rl.question(text.slice(cut))).trim().toLowerCase()
   rl.close()
   return ans === 'yes' ? 'y' : ans
+}
+
+// One-line messages: `npryx:`, a status mark, then what happened.
+function say (c, mark, text) {
+  return `  ${c.bold('npryx:')} ${mark ? mark + ' ' : ''}${text}`
 }
 
 function refuse (msg) {
@@ -575,12 +663,12 @@ function removeAliasBlock (text) {
 function aliasLine () {
   const shell = aliasShell(process.env)
   const rc = shell ? aliasRcPath(shell, '~', process.platform, f => fs.existsSync(f.replace('~', os.homedir()))) : 'your shell startup file'
-  return `  # npryx alias: add to ${rc}, then restart your shell:\n  ${aliasCommand(shell)}\n` +
-    '  # or let npryx add it for you (it shows the change and asks first): npryx --setup-alias\n'
+  return `  ${OUT.dim(`# npryx alias: add to ${rc}, then restart your shell:`)}\n  ${OUT.bold(aliasCommand(shell))}\n` +
+    `  ${OUT.dim('# or let npryx add it for you (it shows the change and asks first): npryx --setup-alias')}\n`
 }
 
 function helpText () {
-  return `npryx: npx that shows you what you're about to run, first.
+  return `${OUT.bold('npryx')}: npx that shows you what you're about to run, first.
 
   npryx <pkg>[@<version>] [args...]   preview, then run with npx (all npx flags work)
 
@@ -596,9 +684,14 @@ function helpText () {
   NPRYX_ALLOW=<name>[@<version>]      allow packages in CI (comma-separated)
   NPRYX_YES=1                         opt out of the CI refusal entirely
 
-npx's own help follows.
+${OUT.dim("npx's own help follows.")}
 
 `
+}
+
+// `[y/N]` with the keys picked out; N, the default, stays capitalised.
+function yesNo (c) {
+  return `${c.dim('[')}${c.bold('y')}${c.dim('/')}${c.bold('N')}${c.dim(']')}`
 }
 
 async function confirm (question, yesFlag) {
@@ -612,38 +705,43 @@ async function confirm (question, yesFlag) {
 
 async function setupAlias (args) {
   const shell = aliasShell(process.env)
-  if (!shell) refuse(`  npryx: couldn't tell which shell you use (SHELL=${process.env.SHELL || 'unset'}). Add the alias yourself:\n  alias npx='npryx'`)
+  if (!shell) refuse(say(ERR, ERR.warn, `couldn't tell which shell you use (SHELL=${process.env.SHELL || 'unset'}). Add the alias yourself:\n  alias npx='npryx'`))
   const rc = aliasRcPath(shell, os.homedir(), process.platform, fs.existsSync)
   const text = fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
-  if (hasAliasBlock(text)) { console.log(`  npryx: the alias is already set up in ${rc}.`); return }
-  if (foreignNpxAlias(text)) refuse(`  npryx: ${rc} already defines its own npx alias, so npryx left it alone.`)
-  console.log(`  This adds the following to ${rc}:\n`)
-  console.log(aliasBlock(shell).trimEnd().replace(/^/gm, '    ') + '\n')
+  if (hasAliasBlock(text)) { console.log(say(OUT, OUT.good, `the alias is already set up in ${rc}.`)); return }
+  if (foreignNpxAlias(text)) refuse(say(ERR, ERR.warn, `${rc} already defines its own npx alias, so npryx left it alone.`))
+  console.log(`  This adds the following to ${OUT.bold(rc)}:\n`)
+  console.log(aliasBlock(shell).trimEnd().split('\n').map(l => '    ' + (l.startsWith('#') ? OUT.dim(l) : l)).join('\n') + '\n')
   console.log('  After that, npx runs npryx. To skip npryx for one command, run `command npx …`.')
-  if (!await confirm('  Add it? [y/N] ', args.includes('--yes'))) refuse('  npryx: left your shell config unchanged.')
+  if (!await confirm(`  Add it? ${yesNo(ERR)} `, args.includes('--yes'))) refuse(say(ERR, null, 'left your shell config unchanged.'))
   fs.mkdirSync(path.dirname(rc), { recursive: true })
   fs.writeFileSync(rc, appendAliasBlock(text, shell))
-  console.log(`  npryx: added. Open a new terminal, or run: source ${rc}`)
+  console.log(say(OUT, OUT.good, `added. Open a new terminal, or run: source ${rc}`))
 }
 
 async function removeAlias (args) {
   const shell = aliasShell(process.env)
   const rc = shell && aliasRcPath(shell, os.homedir(), process.platform, fs.existsSync)
   const text = rc && fs.existsSync(rc) ? fs.readFileSync(rc, 'utf8') : ''
-  if (!hasAliasBlock(text)) { console.log('  npryx: no npryx alias block found, nothing to remove.'); return }
-  if (!await confirm(`  Remove the npryx alias block from ${rc}? [y/N] `, args.includes('--yes'))) refuse('  npryx: left your shell config unchanged.')
+  if (!hasAliasBlock(text)) { console.log(say(OUT, null, 'no npryx alias block found, nothing to remove.')); return }
+  if (!await confirm(`  Remove the npryx alias block from ${rc}? ${yesNo(ERR)} `, args.includes('--yes'))) refuse(say(ERR, null, 'left your shell config unchanged.'))
   fs.writeFileSync(rc, removeAliasBlock(text))
-  console.log(`  npryx: removed. Open a new terminal, or run: source ${rc}`)
+  console.log(say(OUT, OUT.good, `removed. Open a new terminal, or run: source ${rc}`))
 }
 
 function printTrustList () {
   const store = loadStore()
   const names = Object.keys(store)
-  if (!names.length) { console.log('  npryx: trust store is empty.'); return }
-  console.log(`  trusted packages (${TRUST_PATH}):`)
-  for (const n of names) {
-    for (const [v, e] of Object.entries(trustedVersions(store[n]))) console.log(`    ${n}@${v}   approved ${e.approvedAt}`)
-  }
+  if (!names.length) { console.log(say(OUT, null, 'trust store is empty.')); return }
+  const rows = names.flatMap(n => Object.entries(trustedVersions(store[n])).map(([v, e]) => [`${n}@${v}`, e.approvedAt]))
+  const width = Math.max(...rows.map(([id]) => id.length))
+  console.log(say(OUT, null, `trusted versions, from ${TRUST_PATH}`) + '\n')
+  for (const [id, at] of rows) console.log(`    ${OUT.good} ${OUT.bold(id.padEnd(width))}   ${OUT.dim(`approved ${approvedOn(at)}`)}`)
+}
+
+// The approval date; the time of day adds noise. v1 entries may have none.
+function approvedOn (iso) {
+  return iso ? String(iso).slice(0, 10) : 'at an unknown date'
 }
 
 function forget (spec) {
@@ -651,14 +749,14 @@ function forget (spec) {
   const { name, version } = splitSpec(spec)
   const store = loadStore()
   const versions = trustedVersions(store[name])
-  if (version ? !versions[version] : !store[name]) { console.log(`  npryx: "${spec}" was not trusted.`); return }
+  if (version ? !versions[version] : !store[name]) { console.log(say(OUT, null, `"${spec}" was not trusted.`)); return }
   if (version) {
     delete versions[version]
     if (Object.keys(versions).length) store[name] = versions
     else delete store[name]
   } else delete store[name]
   saveStore(store)
-  console.log(`  npryx: forgot "${spec}".`)
+  console.log(say(OUT, OUT.good, `forgot "${spec}".`))
 }
 
 async function scanSetup (args) {
@@ -672,26 +770,28 @@ async function scanSetup (args) {
       const j = await res.json()
       if (j.alg !== 'ed25519' || !j.key) throw new Error('unexpected /v1/pubkey response')
       cfg.key = j.key
-      console.log(`  pinned the service's signing key ${j.key_id}: ${j.key}`)
-      console.log('  (pass --key to pin a key you received some other way instead)')
-    } catch (e) { refuse(`  npryx: couldn't fetch the service's signing key: ${e.message}`) }
+      console.log(say(OUT, OUT.good, `pinned the service's signing key ${j.key_id}: ${j.key}`))
+      console.log(OUT.dim('           Pass --key to pin a key you received some other way instead.'))
+    } catch (e) { refuse(say(ERR, ERR.warn, `couldn't fetch the service's signing key: ${e.message}`)) }
   }
   fs.writeFileSync(SCAN_CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 })
-  console.log(`  npryx: remote scanning on. Public-registry packages you're asked to approve are sent to ${cfg.url} for scanning.`)
-  console.log(`  sandbox scans ${cfg.deep ? 'on' : 'off'}. Turn it all off with: npryx --scan-off`)
+  console.log(say(OUT, OUT.good, `remote scanning is on. Public-registry packages you're asked to approve are sent to ${cfg.url} for scanning.`))
+  console.log(`           Sandbox scans ${cfg.deep ? 'on' : 'off'}. Turn it all off with: ${OUT.bold('npryx --scan-off')}`)
 }
 
 function scanOff () {
-  try { fs.unlinkSync(SCAN_CONFIG_PATH); console.log('  npryx: remote scanning off.') } catch { console.log('  npryx: remote scanning was already off.') }
-  if (process.env.NPRYX_SCAN_URL) console.log('  note: NPRYX_SCAN_URL is still set in your environment, which turns it back on.')
+  try { fs.unlinkSync(SCAN_CONFIG_PATH); console.log(say(OUT, null, 'remote scanning is off.')) } catch { console.log(say(OUT, null, 'remote scanning was already off.')) }
+  if (process.env.NPRYX_SCAN_URL) console.log(say(OUT, OUT.warn, 'NPRYX_SCAN_URL is still set in your environment, which turns it back on.'))
 }
 
 function scanStatus () {
   const cfg = scanConfig(process.env, loadJson(SCAN_CONFIG_PATH))
-  if (!cfg) { console.log('  npryx: remote scanning is off (the default). Opt in with: npryx --scan-config <url>'); return }
-  console.log(`  npryx: remote scanning on, using ${cfg.url}`)
-  console.log(`  signing key ${cfg.key ? 'pinned' : 'not pinned, results are marked unsigned'}`)
-  console.log(`  api token ${cfg.token ? 'set' : 'not set'}, sandbox scans ${cfg.deep ? 'on' : 'off'}`)
+  if (!cfg) { console.log(say(OUT, null, `remote scanning is off (the default). Opt in with: ${OUT.bold('npryx --scan-config <url>')}`)); return }
+  console.log(say(OUT, null, 'remote scanning is on') + '\n')
+  console.log(row(OUT, 'service', cfg.url))
+  console.log(row(OUT, 'signing key', cfg.key ? `${OUT.good} pinned` : `${OUT.warn} ${OUT.yellow('not pinned, results are marked unsigned')}`))
+  console.log(row(OUT, 'api token', cfg.token ? 'set' : OUT.dim('not set')))
+  console.log(row(OUT, 'sandbox', cfg.deep ? 'on' : OUT.dim('off')))
 }
 
 // --- main --------------------------------------------------------------------
@@ -710,7 +810,7 @@ async function main () {
   if (args[0] === '--scan-status') return scanStatus()
 
   const parsed = parseArgs(args)
-  if (parsed.error) refuse(`  npryx: ${parsed.error}`)
+  if (parsed.error) refuse(say(ERR, ERR.warn, parsed.error))
   const base = withoutYes(args, parsed)
   const tgts = targets(parsed, args)
 
@@ -748,7 +848,7 @@ async function main () {
   const cleared = it => it.kind === 'local' || (it.trust && it.trust.status === 'trusted')
   const pinned = withoutYes(pinArgs(args, items), parsed) // pin by original index, then strip
   if (items.every(cleared)) {
-    for (const it of items) if (it.sum) console.error(`  npryx: ${it.sum.name}@${it.sum.version} trusted ✓ (approved ${it.trust.approvedAt})`)
+    for (const it of items) if (it.sum) console.error(say(ERR, ERR.good, `${ERR.bold(`${it.sum.name}@${it.sum.version}`)} is trusted ${ERR.dim(`(approved ${approvedOn(it.trust.approvedAt)})`)}`))
     return runNpx(['--yes', ...pinned])
   }
 
@@ -773,10 +873,10 @@ async function main () {
   // FAIL CLOSED: non-interactive runs need every pending package explicitly
   // allowed (or a blanket opt-out). Blocked packages are never auto-run.
   if (!isTTY) {
-    if (pending.some(blocked)) refuse('  npryx: refusing to run: a package above is tampered or a confirmed threat. NPRYX_YES and NPRYX_ALLOW do not override this.')
+    if (pending.some(blocked)) refuse(say(ERR, ERR.bad, `${ERR.red('refusing to run: a package above is tampered or a confirmed threat.')}\n           NPRYX_YES and NPRYX_ALLOW do not override this.`))
     const ok = forceYes || pending.every(it => isAllowed(allow, it.target.spec, it.sum))
     if (ok) return runNpx(['--yes', ...pinned])
-    refuse('  npryx: refusing to auto-run in a non-interactive shell (fail-closed). Set NPRYX_ALLOW=<name>[@<version>] or NPRYX_YES=1 to override.')
+    refuse(say(ERR, ERR.warn, `refusing to auto-run in a non-interactive shell (fail-closed).\n           Set ${ERR.bold('NPRYX_ALLOW=<name>[@<version>]')} or ${ERR.bold('NPRYX_YES=1')} to override.`))
   }
 
   const canTrust = pending.every(it => it.sum && it.sum.integrity && !blocked(it))
@@ -784,16 +884,16 @@ async function main () {
   if (ans === 'y') return runNpx(['--yes', ...pinned])
   if (ans === 's') return runNpx(['--yes', '--ignore-scripts', ...pinned])
   if (ans === 'a' && canTrust) { recordTrust(pending.map(it => it.sum)); return runNpx(['--yes', ...pinned]) }
-  refuse('  aborted.')
+  refuse(say(ERR, null, 'aborted, nothing ran.'))
 }
 
 if (require.main === module) {
-  main().catch(e => { console.error('npryx:', e.message); process.exit(1) })
+  main().catch(e => { console.error(say(ERR, ERR.bad, e.message)); process.exit(1) })
 }
 
 module.exports = {
   parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat,
   trustMatch, isAllowed, parseAllow, pinArgs, withoutYes, localBin,
-  scanConfig, verifyEnvelope, scanVerdict, renderScan,
+  scanConfig, verifyEnvelope, scanVerdict, renderScan, render, useColor, palette, wrap, promptText,
   aliasRcPath, aliasBlock, appendAliasBlock, hasAliasBlock, foreignNpxAlias, removeAliasBlock
 }

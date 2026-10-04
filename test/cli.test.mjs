@@ -87,3 +87,20 @@ test('--setup-alias leaves an existing npx alias of your own alone', { skip }, (
   assert.strictEqual(r.status, 1)
   assert.match(r.stderr, /already defines its own npx alias/)
 })
+
+// --- colour: never in a pipe or log unless asked for -------------------------
+const ESC = /\x1b\[/ // eslint-disable-line no-control-regex
+const COLOUR_CASES = [
+  ['without a terminal', {}, false],
+  ['with NO_COLOR', { NO_COLOR: '1' }, false],
+  ['with FORCE_COLOR', { FORCE_COLOR: '1' }, true]
+]
+for (const [when, env, want] of COLOUR_CASES) {
+  test(`preview and refusal ${want ? 'are' : 'are not'} coloured ${when}`, { skip }, () => {
+    const r = run({ argv: ['cowsay'], views: VIEWS, env })
+    assert.match(r.stderr, /cowsay@1\.6\.0: no warnings[\s\S]*refusing to auto-run/)
+    assert.strictEqual(ESC.test(r.stderr), want, r.stderr)
+    const status = run({ argv: ['--scan-status'], env })
+    assert.strictEqual(ESC.test(status.stdout), want, status.stdout)
+  })
+}

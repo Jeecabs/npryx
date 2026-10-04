@@ -29,6 +29,10 @@ version it showed you**, never a fresh resolve.
 ```
   npryx: about to fetch & run a package from the npm registry
 
+  ! esbuild@0.28.1: 2 warnings, review before running
+    - runs install scripts (postinstall) which execute code on install
+    - published only 11d ago, brand new with little scrutiny yet
+
   package       esbuild@0.28.1   (asked: latest)
   published     11d ago
   weekly dl     41,284,663
@@ -36,14 +40,15 @@ version it showed you**, never a fresh resolve.
   repo          git+https://github.com/evanw/esbuild.git
   integrity     sha512-HrJrvZv5ayxBzPfwp…
   provenance    ✓ https://slsa.dev/provenance/v1
-  install hook  ⚠️  yes, runs code on install
+  install hook  ! yes, runs code on install
 
-  ⚠️  2 warning(s):
-       • runs install scripts (postinstall) which execute code on install
-       • published only 11d ago, brand new with little scrutiny yet
-
-  [y] run   [s] run with --ignore-scripts (safer)   [a] always-trust this version   [N] abort:
+  [y] run   [s] run with --ignore-scripts (safer)   [a] always-trust this version   [N] abort (default):
 ```
+
+In a terminal the marks and the verdict are coloured (green ✓, yellow !, red ✗ for
+tampered bytes or a confirmed threat). Piped or logged output stays plain. `NO_COLOR=1`
+turns colour off and `FORCE_COLOR=1` turns it on. On a narrow terminal the choices
+stack one per line.
 
 ## What it shows
 
@@ -85,12 +90,12 @@ Choosing `a` records the version and its **integrity hash** (sha512) in
 `~/.npryx.json`. You can trust several versions of the same package. Next time:
 
 - **same version, same integrity** → the bytes you approved. npryx prints
-  `trusted ✓` and runs with no prompt. No fatigue, no reflexive `y`.
+  `✓ cowsay@1.6.0 is trusted` and runs with no prompt. No fatigue, no reflexive `y`.
 - **a version you haven't approved** → a normal new release. npryx shows the full
   preview with a note (`you trusted cowsay@1.5.0; this is 1.6.0`) and asks again.
 - **same version, different integrity** → npm never lets a published version be
   overwritten, so a registry, mirror or proxy is serving altered code. npryx shows
-  a loud warning, and this is **never** auto-run, not even with `NPRYX_YES=1`.
+  a red `✗ do not run`, and this is **never** auto-run, not even with `NPRYX_YES=1`.
 
 ```
 npryx --trust-list                 # show what you've trusted

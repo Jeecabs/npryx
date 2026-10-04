@@ -9,7 +9,7 @@ import * as hegel from '@hegeldev/hegel'
 import * as gs from '@hegeldev/hegel/generators'
 import npryx from '../npryx.js'
 
-const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, pinArgs, withoutYes, appendAliasBlock, removeAliasBlock, hasAliasBlock, foreignNpxAlias, aliasRcPath } = npryx
+const { parseArgs, targets, splitSpec, classify, pickVersion, summarize, editDistance, typosquat, trustMatch, pinArgs, withoutYes, appendAliasBlock, removeAliasBlock, hasAliasBlock, foreignNpxAlias, aliasRcPath, useColor, palette, render, wrap, promptText } = npryx
 
 // --- generators --------------------------------------------------------------
 const NAME = gs.fromRegex('(@[a-z][a-z0-9-]{0,5}/)?[a-z][a-z0-9._-]{0,10}')
@@ -164,4 +164,48 @@ test('alias: the right startup file per shell, and a foreign npx alias is left a
   assert.strictEqual(aliasRcPath('bash', '/h', 'darwin', f => f === h('.bash_profile')), h('.bash_profile'))
   assert.ok(foreignNpxAlias("alias npx='something-else'\n"))
   assert.ok(!foreignNpxAlias(appendAliasBlock('export X=1\n', 'zsh')), 'our own block is not foreign')
+})
+
+// --- terminal styling ----------------------------------------------------------
+const ESC = /\x1b\[/ // eslint-disable-line no-control-regex
+
+test('colour: only on a terminal, NO_COLOR turns it off, FORCE_COLOR turns it on', () => {
+  const tty = { isTTY: true }
+  const pipe = { isTTY: false }
+  const cases = [
+    [pipe, {}, false],
+    [tty, {}, true],
+    [tty, { TERM: 'dumb' }, false],
+    [tty, { NO_COLOR: '1' }, false],
+    [tty, { NO_COLOR: '' }, true], // the spec: only a non-empty value counts
+    [pipe, { FORCE_COLOR: '1' }, true],
+    [pipe, { FORCE_COLOR: '' }, false],
+    [tty, { FORCE_COLOR: '0' }, false],
+    [pipe, { FORCE_COLOR: '1', NO_COLOR: '1' }, true] // as in Node: FORCE_COLOR wins
+  ]
+  for (const [stream, env, want] of cases) assert.strictEqual(useColor(stream, env), want, JSON.stringify({ tty: stream.isTTY, ...env }))
+})
+
+const SUM = { name: 'esbuild', version: '0.28.1', runsInstallScripts: true, hooks: ['postinstall'], deprecated: null, published: null, maintainers: ['esbuild'], repo: 'git+https://github.com/evanw/esbuild.git', integrity: 'sha512-abc', publicRegistry: true, provenance: 'https://slsa.dev/provenance/v1' }
+const plain = palette(false)
+
+test('the preview leads with a verdict and counts warnings in plain words', () => {
+  const out = render(SUM, { requested: null, downloads: 5000 }, plain, 0)
+  assert.doesNotMatch(out, ESC)
+  assert.match(out, /\n {2}! esbuild@0\.28\.1: 1 warning, review before running\n {4}- runs install scripts/)
+  assert.doesNotMatch(out, /warning\(s\)|⚠|⛔|—/)
+  assert.match(render({ ...SUM, runsInstallScripts: false, hooks: [] }, { downloads: 5000 }, plain, 0), /✓ esbuild@0\.28\.1: no warnings/)
+  assert.match(render(SUM, { downloads: 5000, trust: { status: 'tampered' } }, plain, 0), /✗ do not run esbuild@0\.28\.1: it is not the bytes you approved/)
+  assert.match(render(SUM, { downloads: 5000 }, palette(true), 0), ESC)
+})
+
+prop('wrapping never runs past the terminal width', tc => {
+  const cols = tc.draw(gs.integers({ minValue: 40, maxValue: 120 }))
+  const words = tc.draw(gs.arrays(gs.fromRegex('[a-z:/.]{1,70}'), { minSize: 1, maxSize: 30 }))
+  for (const line of wrap(words.join(' '), 16, cols).split('\n')) assert.ok(16 + line.trimStart().length < cols, `${line} is past ${cols}`)
+})
+
+test('the prompt marks the default, and stacks the choices on a narrow terminal', () => {
+  assert.strictEqual(promptText(true, plain, 0), '  [y] run   [s] run with --ignore-scripts (safer)   [a] always-trust this version   [N] abort (default): ')
+  assert.strictEqual(promptText(false, plain, 60), '  [y] run\n  [s] run with --ignore-scripts (safer)\n  [N] abort (default)\n  choice: ')
 })
