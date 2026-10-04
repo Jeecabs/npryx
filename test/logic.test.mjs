@@ -1,4 +1,4 @@
-// npryx's pure logic. Properties (via Hegel) cover the parser — the part where
+// npryx's pure logic. Properties (via Hegel) cover the parser: the part where
 // one wrong guess means previewing package A and running package B. A few
 // real-world examples pin down the cases we know attackers use.
 
@@ -31,7 +31,7 @@ const FLAG = gs.oneOf(
 const ARGV = gs.composite(tc => [
   ...tc.draw(gs.arrays(FLAG, { maxSize: 5 })).flat(),
   ...(tc.draw(gs.booleans()) ? [tc.draw(SPEC)] : []),
-  ...tc.draw(gs.arrays(ANY, { maxSize: 4 })) // the command's own args — anything goes
+  ...tc.draw(gs.arrays(ANY, { maxSize: 4 })) // the command's own args: anything goes
 ])
 
 const prop = (name, fn) => test(name, () => hegel.test(fn, { testCases: 300 }))

@@ -1,6 +1,6 @@
 // npryx end to end. Fake `npm`/`npx` sit first on PATH: npm answers `npm view`
 // from fixtures, npx records what it was asked to run. stdin isn't a TTY, so
-// these are the CI paths — where a wrong decision runs code nobody saw.
+// these are the CI paths, where a wrong decision runs code nobody saw.
 // Each case: argv (+ env, trust store, project dir), then what must happen.
 
 import { test } from 'node:test'
@@ -37,7 +37,7 @@ const CASES = [
   { name: 'tampered bytes never run, even with NPRYX_YES', argv: ['cowsay'], env: { NPRYX_YES: '1' }, store: trusted('sha512-EVIL'), expect: { ...REFUSED, stderr: /not the bytes you approved/ } },
   { name: 'new version of a trusted package is a calm note', argv: ['cowsay'], store: { cowsay: { '1.5.0': { integrity: 'sha512-old' } } }, expect: { ...REFUSED, stderr: /you trusted cowsay@1\.5\.0; this is 1\.6\.0/ } },
 
-  // runs — always pinned to what was previewed
+  // runs, always pinned to what was previewed
   { name: 'allowed package runs pinned', argv: ['cowsay@^1', 'moo'], env: { NPRYX_ALLOW: 'cowsay' }, expect: { status: 0, npx: [['--yes', 'cowsay@1.6.0', 'moo']] } },
   { name: 'allow by integrity', argv: ['cowsay'], env: { NPRYX_ALLOW: 'sha512-cow' }, expect: { status: 0, npx: [['--yes', 'cowsay@1.6.0']] } },
   { name: 'leading -y is npx\'s and opts out', argv: ['-y', 'cowsay'], expect: { status: 0, npx: [['--yes', 'cowsay@1.6.0']] } },

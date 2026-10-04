@@ -2,8 +2,8 @@
 'use strict'
 // npryx: a SECURITY-FIRST superset of `npx` (npm exec).
 // Before npm downloads & executes a remote package, npryx shows the trust signals
-// npx hides — install scripts, build provenance, age, popularity, deprecation,
-// typosquatting — then you decide. FAILS CLOSED: if it can't verify the package
+// npx hides (install scripts, build provenance, age, popularity, deprecation,
+// typosquatting), then you decide. FAILS CLOSED: if it can't verify the package
 // it won't auto-run. Offers a one-keystroke `--ignore-scripts` safe run, and
 // REMEMBERS prior approvals (TOFU trust store) so the prompt keeps meaning something.
 //
@@ -53,7 +53,7 @@ const REGISTRY_FLAGS = new Set([
 
 // Common npx/install targets & known squat victims. Exact matches never warn.
 // Names under 5 chars are exact-only: one edit from `jest` is `test`, `just`,
-// `best` — too many innocent neighbours. A static list, not a live
+// `best`: too many innocent neighbours. A static list, not a live
 // popularity feed; grow it if a real squat slips through.
 const POPULAR = [
   'express', 'cross-env', 'lodash', 'chalk', 'commander', 'request', 'react',
@@ -64,7 +64,7 @@ const POPULAR = [
   'puppeteer', 'playwright', 'sharp', 'uuid', 'semver', 'glob', 'husky', 'sigstore'
 ]
 
-// npm verbs people type from muscle memory. npx has no subcommands — `npx install`
+// npm verbs people type from muscle memory. npx has no subcommands: `npx install`
 // RUNS the registry package named "install". Warn (don't block: may be intended).
 // High-precision npm-only verbs; words that double as plausible package
 // names (run/test/start/link/pack) are left out to avoid false alarms.
@@ -92,7 +92,7 @@ function parseArgs (args) {
       if (i + 1 >= args.length) return { ...r, error: `${key} needs a value` }
       value = args[++i]
     } else if (eq < 0 && !BOOL_FLAGS.has(key) && !key.startsWith('--no-')) {
-      return { ...r, error: `unrecognised flag ${key} — npryx can't tell whether it takes a value, so it can't tell which package would run. Write it as ${key}=<value>` }
+      return { ...r, error: `unrecognised flag ${key}: npryx can't tell whether it takes a value, so it can't tell which package would run. Write it as ${key}=<value>` }
     }
     if (key === '-p' || key === '--package') {
       r.packages.push({ spec: value, at: i, prefix: eq > 0 ? key + '=' : '' })
@@ -128,8 +128,8 @@ function splitSpec (spec) {
 
 const NAME_RE = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/i
 
-// 'registry': a name `npm view` can verify. 'local': a path on this machine —
-// explicit user intent, forwarded. 'remote': git, URLs, aliases, anything else —
+// 'registry': a name `npm view` can verify. 'local': a path on this machine,
+// explicit user intent, forwarded. 'remote': git, URLs, aliases, anything else
 // fetched from somewhere npryx can't check, so it is gated like a failed lookup.
 function classify (spec) {
   if (!spec) return 'remote'
@@ -343,21 +343,21 @@ function ageString (iso) {
 
 function warnings (s, downloads, squat) {
   const w = []
-  if (s.runsInstallScripts) w.push(`runs install scripts (${s.hooks.join(', ') || 'hasInstallScript'}) — executes code on install`)
+  if (s.runsInstallScripts) w.push(`runs install scripts (${s.hooks.join(', ') || 'hasInstallScript'}) which execute code on install`)
   if (s.deprecated) w.push(`deprecated: ${s.deprecated}`)
   const days = ageDays(s.published)
-  if (days != null && days < 30) w.push(`published only ${Math.round(days)}d ago — brand new, little scrutiny yet`)
-  if (downloads != null && downloads < 1000) w.push(`only ${downloads.toLocaleString()} weekly downloads — unusually low`)
-  if (squat) w.push(`did you mean "${squat}"? "${s.name}" is one edit away from a popular package — possible typosquat`)
-  if (NPM_SUBCOMMANDS.has(s.name)) w.push(`"${s.name}" is an npm subcommand — npryx wraps \`npx\` (npm exec), so this runs the registry package "${s.name}" rather than performing \`npm ${s.name}\`. Did you mean \`npm ${s.name} …\`?`)
+  if (days != null && days < 30) w.push(`published only ${Math.round(days)}d ago, brand new with little scrutiny yet`)
+  if (downloads != null && downloads < 1000) w.push(`only ${downloads.toLocaleString()} weekly downloads, unusually low`)
+  if (squat) w.push(`did you mean "${squat}"? "${s.name}" is one edit away from a popular package, possible typosquat`)
+  if (NPM_SUBCOMMANDS.has(s.name)) w.push(`"${s.name}" is an npm subcommand. npryx wraps \`npx\` (npm exec), so this runs the registry package "${s.name}" rather than performing \`npm ${s.name}\`. Did you mean \`npm ${s.name} …\`?`)
   return w
 }
 
 function render (s, ctx) {
   const { requested, downloads, squat, trust } = ctx
-  const lines = ['']
+  const lines = ['', '  npryx: about to fetch & run a package from the npm registry', '']
   if (trust && trust.status === 'tampered') {
-    lines.push(`  ⛔ ${s.name}@${s.version} is not the bytes you approved — same version, different integrity.`)
+    lines.push(`  ⛔ ${s.name}@${s.version} is not the bytes you approved: same version, different integrity.`)
     lines.push('      npm never lets a version be republished, so a registry, mirror or proxy is')
     lines.push('      serving altered code. Do not run this.')
     lines.push('')
@@ -374,7 +374,7 @@ function render (s, ctx) {
     `  repo          ${s.repo || 'none listed'}`,
     `  integrity     ${s.integrity ? s.integrity.slice(0, 24) + '…' : 'unknown'}`,
     `  provenance    ${s.provenance ? '✓ ' + s.provenance : 'none'}`,
-    `  install hook  ${s.runsInstallScripts ? '⚠️  yes — runs code on install' : '✓ none'}`,
+    `  install hook  ${s.runsInstallScripts ? '⚠️  yes, runs code on install' : '✓ none'}`,
     ...renderScan(ctx.scan),
     ''
   )
@@ -389,7 +389,7 @@ function render (s, ctx) {
 
 function renderUnverified (it) {
   const why = it.error
-    ? `could not verify "${it.target.spec}" — ${it.error}\n      This may be a typo, an unpublished/private package, or a registry issue.`
+    ? `could not verify "${it.target.spec}": ${it.error}\n      This may be a typo, an unpublished/private package, or a registry issue.`
     : `"${it.target.spec}" is fetched from outside the npm registry (git, URL or alias), so npryx can't verify it.`
   return `\n  ⚠️  npryx: ${why}\n`
 }
@@ -575,7 +575,7 @@ function removeAliasBlock (text) {
 function aliasLine () {
   const shell = aliasShell(process.env)
   const rc = shell ? aliasRcPath(shell, '~', process.platform, f => fs.existsSync(f.replace('~', os.homedir()))) : 'your shell startup file'
-  return `  # npryx alias — add to ${rc}, then restart your shell:\n  ${aliasCommand(shell)}\n` +
+  return `  # npryx alias: add to ${rc}, then restart your shell:\n  ${aliasCommand(shell)}\n` +
     '  # or let npryx add it for you (it shows the change and asks first): npryx --setup-alias\n'
 }
 
