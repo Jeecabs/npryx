@@ -32,7 +32,7 @@ oxc_parser = "0.152"
 oxc_ast = "0.152"
 oxc_ast_visit = "0.152"
 oxc_span = "0.152"
-oxc_syntax = "0.152"
+oxc_syntax = "0.153"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 
 [dev-dependencies]
