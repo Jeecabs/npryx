@@ -35,6 +35,6 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "@hegeldev/hegel": "0.4.7"
+    "@hegeldev/hegel": "0.4.11"
   }
 }
